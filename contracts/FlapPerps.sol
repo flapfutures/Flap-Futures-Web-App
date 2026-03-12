@@ -191,6 +191,22 @@ contract FlapPerps {
         price = IFlapOracle(oracle).getPrice(token);
     }
 
+    function _writePosition(
+        uint256 posId, address trader,
+        uint256 margin, uint8 leverage, bool isLong,
+        uint256 price, uint256 notional
+    ) internal {
+        Position storage p = positions[posId];
+        p.trader     = trader;
+        p.margin     = margin;
+        p.leverage   = leverage;
+        p.isLong     = isLong;
+        p.entryPrice = price;
+        p.size       = notional;
+        p.openedAt   = block.timestamp;
+        p.isOpen     = true;
+    }
+
     function openPosition(
         uint256 margin,
         uint8   leverage,
@@ -203,24 +219,12 @@ contract FlapPerps {
 
         _safeTransferFrom(collateral, msg.sender, address(this), margin + openFee);
         pendingOpenerFees += (openFee * OPENER_FEE_SHARE) / BPS_DENOM;
-        uint256 platformCut = (openFee * PLATFORM_FEE_SHARE) / BPS_DENOM;
-        if (platformCut > 0) _safeTransfer(collateral, platformFeeWallet, platformCut);
-
+        _safeTransfer(collateral, platformFeeWallet, (openFee * PLATFORM_FEE_SHARE) / BPS_DENOM);
         _safeTransfer(collateral, vault, margin);
         IFlapVault(vault).addToVault(margin);
 
         uint256 posId = nextPositionId++;
-        positions[posId] = Position({
-            trader:         msg.sender,
-            margin:         margin,
-            leverage:       leverage,
-            isLong:         isLong,
-            entryPrice:     price,
-            size:           notional,
-            openedAt:       block.timestamp,
-            isOpen:         true,
-            fundingAccrued: 0
-        });
+        _writePosition(posId, msg.sender, margin, leverage, isLong, price, notional);
 
         traderPositions[msg.sender].push(posId);
         if (isLong) totalLongOI  += notional;
