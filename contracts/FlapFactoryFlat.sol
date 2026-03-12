@@ -415,7 +415,7 @@ contract FlapPerps {
     function getOpenPositionCount()   external view returns (uint256) { return openPositionCount; }
     function getPosition(uint256 id)  external view returns (Position memory) { return positions[id]; }
     function getTraderPositions(address t) external view returns (uint256[] memory) { return traderPositions[t]; }
-    function getUnrealizedPnl(uint256 id) external view returns (int256) { Position memory p = positions[id]; return p.isOpen ? _pnl(p, _latestPrice()) : 0; }
+    function getUnrealizedPnl(uint256 id) external view returns (int256) { Position memory p = positions[id]; return p.isOpen ? _pnl(p, _latestPrice()) : int256(0); }
     function isLiquidatable(uint256 id)   external view returns (bool) { Position memory p = positions[id]; return p.isOpen && _liqCheck(p, _latestPrice()); }
     function getCurrentParams() external view returns (uint256 spread, uint8 maxLev, uint256 maxPos, uint256 maxOI, uint256 curOI) {
         uint256 m = IOracle(oracle).getMcap(token);
