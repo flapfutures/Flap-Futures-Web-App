@@ -176,47 +176,40 @@ contract FlapPerps {
         IERC20Perps(_collateral).approve(_funding, type(uint256).max);
     }
 
+    function _validateOpen(uint256 margin, uint8 leverage) internal view returns (
+        uint256 notional,
+        uint256 openFee,
+        uint256 price
+    ) {
+        uint256 mcap = IFlapOracle(oracle).getMcap(token);
+        require(leverage >= 1 && leverage <= FlapParams.calcMaxLeverage(mcap), "FlapPerps: leverage out of range");
+        require(margin >= FlapParams.MIN_POSITION && margin <= FlapParams.calcMaxPosition(mcap), "FlapPerps: position size out of range");
+        notional = margin * leverage;
+        require(totalLongOI + totalShortOI + notional <= FlapParams.calcMaxOI(mcap), "FlapPerps: OI cap reached");
+        uint256 rawFee = (notional * TRADE_FEE_BPS) / BPS_DENOM;
+        openFee = rawFee < MIN_TRADE_FEE ? MIN_TRADE_FEE : rawFee;
+        price = IFlapOracle(oracle).getPrice(token);
+    }
+
     function openPosition(
         uint256 margin,
         uint8   leverage,
         bool    isLong
     ) external marketActive priceIsFresh {
-        require(!emergencyPaused,                "FlapPerps: emergency paused");
+        require(!emergencyPaused, "FlapPerps: emergency paused");
         require(!IFlapVault(vault).isFrozen(), "FlapPerps: market frozen");
 
-        uint256 mcap = IFlapOracle(oracle).getMcap(token);
+        (uint256 notional, uint256 openFee, uint256 price) = _validateOpen(margin, leverage);
 
-        uint8 maxLev = FlapParams.calcMaxLeverage(mcap);
-        require(leverage >= 1 && leverage <= maxLev, "FlapPerps: leverage out of range");
-
-        uint256 minPos = FlapParams.MIN_POSITION;
-        uint256 maxPos = FlapParams.calcMaxPosition(mcap);
-        require(margin >= minPos && margin <= maxPos, "FlapPerps: position size out of range");
-
-        uint256 notional = margin * leverage;
-        uint256 maxOI    = FlapParams.calcMaxOI(mcap);
-        require(totalLongOI + totalShortOI + notional <= maxOI, "FlapPerps: OI cap reached");
-
-        uint256 rawFee   = (notional * TRADE_FEE_BPS) / BPS_DENOM;
-        uint256 openFee  = rawFee < MIN_TRADE_FEE ? MIN_TRADE_FEE : rawFee;
-        uint256 totalIn  = margin + openFee;
-
-        _safeTransferFrom(collateral, msg.sender, address(this), totalIn);
-
-        uint256 openerCut   = (openFee * OPENER_FEE_SHARE)   / BPS_DENOM;
+        _safeTransferFrom(collateral, msg.sender, address(this), margin + openFee);
+        pendingOpenerFees += (openFee * OPENER_FEE_SHARE) / BPS_DENOM;
         uint256 platformCut = (openFee * PLATFORM_FEE_SHARE) / BPS_DENOM;
-        pendingOpenerFees  += openerCut;
-        if (platformCut > 0) {
-            _safeTransfer(collateral, platformFeeWallet, platformCut);
-        }
+        if (platformCut > 0) _safeTransfer(collateral, platformFeeWallet, platformCut);
 
-        // Transfer margin to vault (vault holds the collateral for payouts)
         _safeTransfer(collateral, vault, margin);
         IFlapVault(vault).addToVault(margin);
 
         uint256 posId = nextPositionId++;
-        uint256 price = IFlapOracle(oracle).getPrice(token);
-
         positions[posId] = Position({
             trader:         msg.sender,
             margin:         margin,
@@ -230,7 +223,6 @@ contract FlapPerps {
         });
 
         traderPositions[msg.sender].push(posId);
-
         if (isLong) totalLongOI  += notional;
         else        totalShortOI += notional;
         openPositionCount++;
