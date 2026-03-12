@@ -18,79 +18,69 @@ library FlapParams {
     uint256 internal constant VAULT_WARN_BPS   = 3000;
     uint256 internal constant VAULT_FREEZE_BPS = 1500;
 
-    function calcSpread(uint256 mcap) internal pure returns (uint256) {
-        if (mcap < MCAP_50K)  return 50;
-        if (mcap < MCAP_100K) return 45;
-        if (mcap < MCAP_200K) return 40;
-        if (mcap < MCAP_400K) return 35;
-        if (mcap < MCAP_800K) return 30;
-        if (mcap < MCAP_1P5M) return 25;
-        if (mcap < MCAP_3M)   return 20;
-        if (mcap < MCAP_7M)   return 15;
+    function calcSpread(uint256 m) internal pure returns (uint256) {
+        if (m < MCAP_50K)  return 50;
+        if (m < MCAP_100K) return 45;
+        if (m < MCAP_200K) return 40;
+        if (m < MCAP_400K) return 35;
+        if (m < MCAP_800K) return 30;
+        if (m < MCAP_1P5M) return 25;
+        if (m < MCAP_3M)   return 20;
+        if (m < MCAP_7M)   return 15;
         return 10;
     }
-
-    function calcMaxLeverage(uint256 mcap) internal pure returns (uint8) {
-        if (mcap < MCAP_50K)  return 1;
-        if (mcap < MCAP_100K) return 5;
-        if (mcap < MCAP_300K) return 7;
+    function calcMaxLeverage(uint256 m) internal pure returns (uint8) {
+        if (m < MCAP_50K)  return 1;
+        if (m < MCAP_100K) return 5;
+        if (m < MCAP_300K) return 7;
         return 10;
     }
-
-    function calcMaxPosition(uint256 mcap) internal pure returns (uint256) {
-        if (mcap < MCAP_50K)  return 20e18;
-        if (mcap < MCAP_100K) return 35e18;
-        if (mcap < MCAP_300K) return 50e18;
-        if (mcap < MCAP_1M)   return 75e18;
+    function calcMaxPosition(uint256 m) internal pure returns (uint256) {
+        if (m < MCAP_50K)  return 20e18;
+        if (m < MCAP_100K) return 35e18;
+        if (m < MCAP_300K) return 50e18;
+        if (m < MCAP_1M)   return 75e18;
         return 100e18;
     }
-
-    function calcMaxOI(uint256 mcap) internal pure returns (uint256) {
-        if (mcap < MCAP_50K)  return 1_000e18;
-        if (mcap < MCAP_100K) return 2_500e18;
-        if (mcap < MCAP_300K) return 6_000e18;
-        if (mcap < MCAP_1M)   return 15_000e18;
-        if (mcap < MCAP_5M)   return 40_000e18;
+    function calcMaxOI(uint256 m) internal pure returns (uint256) {
+        if (m < MCAP_50K)  return 1_000e18;
+        if (m < MCAP_100K) return 2_500e18;
+        if (m < MCAP_300K) return 6_000e18;
+        if (m < MCAP_1M)   return 15_000e18;
+        if (m < MCAP_5M)   return 40_000e18;
         return 100_000e18;
     }
-
-    function calcMinInsurance(uint256 mcap) internal pure returns (uint256) {
-        uint256 maxOI = calcMaxOI(mcap);
-        uint256 ten = maxOI / 10;
-        return ten < 100e18 ? 100e18 : ten;
+    function calcMinInsurance(uint256 m) internal pure returns (uint256) {
+        uint256 x = calcMaxOI(m) / 10;
+        return x < 100e18 ? 100e18 : x;
     }
-
-    function vaultHealth(uint256 vaultBalance, uint256 maxOI) internal pure returns (uint8) {
+    function vaultHealth(uint256 bal, uint256 maxOI) internal pure returns (uint8) {
         if (maxOI == 0) return 0;
-        uint256 ratio = (vaultBalance * 10_000) / maxOI;
-        if (ratio >= VAULT_WARN_BPS)   return 0;
-        if (ratio >= VAULT_FREEZE_BPS) return 1;
+        uint256 r = (bal * 10_000) / maxOI;
+        if (r >= VAULT_WARN_BPS)   return 0;
+        if (r >= VAULT_FREEZE_BPS) return 1;
         return 2;
     }
 }
 
-interface IERC20Safe {
-    function transfer(address to, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
+interface IERC20V {
+    function transfer(address to, uint256 a) external returns (bool);
+    function transferFrom(address f, address t, uint256 a) external returns (bool);
+    function balanceOf(address a) external view returns (uint256);
 }
-
-interface IFlapPerpsForVault {
+interface IPerpsV {
     function getOpenPositionCount() external view returns (uint256);
     function forceCloseAll() external;
     function getTotalOpenInterest() external view returns (uint256);
 }
 
 contract FlapVault {
-    using FlapParams for uint256;
-
     address public immutable opener;
     address public immutable token;
     address public immutable collateral;
     address public immutable oracle;
     address public immutable factory;
     address public immutable platformAdmin;
-
     address public perps;
     address public platformContract;
 
@@ -98,6 +88,8 @@ contract FlapVault {
     uint256 public constant LOCK_30D  = 30  days;
     uint256 public constant LOCK_90D  = 90  days;
     uint256 public constant LOCK_180D = 180 days;
+    uint256 public constant GRACE_PERIOD = 3 days;
+    uint256 public constant MIN_VAULT    = 100e18;
 
     uint256 public vaultBalance;
     uint256 public insuranceBalance;
@@ -107,236 +99,162 @@ contract FlapVault {
     uint256 public frozenAt;
     bool    public withdrawalRequested;
     bool    public marketClosed;
-
-    uint256 public constant GRACE_PERIOD = 3 days;
-    uint256 public constant MIN_VAULT    = 100e18;
     uint8   public trustBadge;
 
     event VaultDeposited(address indexed opener, uint256 amount, uint256 unlocksAt);
     event InsuranceDeposited(address indexed opener, uint256 amount, uint256 unlocksAt);
     event VaultWithdrawalRequested(address indexed opener);
-    event VaultWithdrawn(address indexed opener, uint256 vaultAmount, uint256 insuranceAmount);
+    event VaultWithdrawn(address indexed opener, uint256 v, uint256 i);
     event TraderRefunded(address indexed trader, uint256 amount);
-    event MarketFrozen(uint256 frozenAt);
+    event MarketFrozen(uint256 at);
     event MarketForceClosedByHealth();
-    event VaultHealthUpdated(uint8 health);
-    event EmergencyWithdraw(address indexed to, uint256 totalAmount);
+    event VaultHealthUpdated(uint8 h);
+    event EmergencyWithdraw(address indexed to, uint256 total);
 
-    modifier onlyOpener()        { require(msg.sender == opener,   "FlapVault: not opener");   _; }
-    modifier onlyPerps()         { require(msg.sender == perps,    "FlapVault: not perps");    _; }
-    modifier notClosed()         { require(!marketClosed,          "FlapVault: market closed"); _; }
+    modifier onlyOpener()        { require(msg.sender == opener,  "V:op"); _; }
+    modifier onlyPerps()         { require(msg.sender == perps,   "V:pr"); _; }
+    modifier notClosed()         { require(!marketClosed,         "V:cl"); _; }
     modifier onlyPlatformAdmin() {
-        require(
-            msg.sender == platformAdmin ||
-            (platformContract != address(0) && msg.sender == platformContract),
-            "FlapVault: not platform admin"
-        );
+        require(msg.sender == platformAdmin || (platformContract != address(0) && msg.sender == platformContract), "V:pa");
         _;
     }
 
     constructor(
         address _opener, address _token, address _collateral,
-        address _oracle, address _factory, uint256 _lockDuration, address _platformAdmin
+        address _oracle, address _factory, uint256 _lock, address _pa
     ) {
-        require(_opener        != address(0), "FlapVault: zero opener");
-        require(_token         != address(0), "FlapVault: zero token");
-        require(_collateral    != address(0), "FlapVault: zero collateral");
-        require(_oracle        != address(0), "FlapVault: zero oracle");
-        require(_factory       != address(0), "FlapVault: zero factory");
-        require(_platformAdmin != address(0), "FlapVault: zero platformAdmin");
-        require(
-            _lockDuration == LOCK_7D || _lockDuration == LOCK_30D ||
-            _lockDuration == LOCK_90D || _lockDuration == LOCK_180D,
-            "FlapVault: invalid lock duration"
-        );
-        opener        = _opener;
-        token         = _token;
-        collateral    = _collateral;
-        oracle        = _oracle;
-        factory       = _factory;
-        lockDuration  = _lockDuration;
-        platformAdmin = _platformAdmin;
-        if      (_lockDuration == LOCK_30D)  trustBadge = 1;
-        else if (_lockDuration == LOCK_90D)  trustBadge = 2;
-        else if (_lockDuration == LOCK_180D) trustBadge = 3;
-        else                                 trustBadge = 0;
+        require(_opener != address(0) && _token != address(0) && _collateral != address(0), "V:0a");
+        require(_oracle != address(0) && _factory != address(0) && _pa != address(0),       "V:0b");
+        require(_lock == LOCK_7D || _lock == LOCK_30D || _lock == LOCK_90D || _lock == LOCK_180D, "V:lk");
+        opener = _opener; token = _token; collateral = _collateral;
+        oracle = _oracle; factory = _factory; lockDuration = _lock; platformAdmin = _pa;
+        if      (_lock == LOCK_30D)  trustBadge = 1;
+        else if (_lock == LOCK_90D)  trustBadge = 2;
+        else if (_lock == LOCK_180D) trustBadge = 3;
     }
 
-    function setPerps(address _perps) external {
-        require(msg.sender == factory, "FlapVault: not factory");
-        require(perps == address(0),   "FlapVault: perps already set");
-        require(_perps != address(0),  "FlapVault: zero perps");
-        perps = _perps;
+    function setPerps(address _p) external {
+        require(msg.sender == factory && perps == address(0) && _p != address(0), "V:sp");
+        perps = _p;
     }
-
-    function setPlatformContract(address _platform) external {
-        require(msg.sender == factory,           "FlapVault: not factory");
-        require(platformContract == address(0),  "FlapVault: platform already set");
-        require(_platform != address(0),         "FlapVault: zero platform");
-        platformContract = _platform;
+    function setPlatformContract(address _p) external {
+        require(msg.sender == factory && platformContract == address(0) && _p != address(0), "V:sc");
+        platformContract = _p;
     }
-
-    function initDeposit(uint256 vaultAmount, uint256 insuranceAmount) external notClosed {
-        require(msg.sender == factory,                              "FlapVault: not factory");
-        require(vaultBalance == 0 && insuranceBalance == 0,        "FlapVault: already initialised");
-        require(vaultAmount  >= MIN_VAULT,                         "FlapVault: vault below $100 minimum");
-        require(insuranceAmount > 0,                               "FlapVault: zero insurance");
-        _safeTransferFrom(collateral, factory, address(this), vaultAmount + insuranceAmount);
-        vaultBalance         = vaultAmount;
-        insuranceBalance     = insuranceAmount;
-        vaultLockedUntil     = block.timestamp + lockDuration;
+    function initDeposit(uint256 va, uint256 ia) external notClosed {
+        require(msg.sender == factory, "V:if");
+        require(vaultBalance == 0 && insuranceBalance == 0, "V:ii");
+        require(va >= MIN_VAULT && ia > 0, "V:im");
+        _stf(collateral, factory, address(this), va + ia);
+        vaultBalance = va; insuranceBalance = ia;
+        vaultLockedUntil = block.timestamp + lockDuration;
         insuranceLockedUntil = block.timestamp + lockDuration;
-        emit VaultDeposited(opener, vaultAmount, vaultLockedUntil);
-        emit InsuranceDeposited(opener, insuranceAmount, insuranceLockedUntil);
+        emit VaultDeposited(opener, va, vaultLockedUntil);
+        emit InsuranceDeposited(opener, ia, insuranceLockedUntil);
     }
-
-    function depositVault(uint256 amount) external onlyOpener notClosed {
-        require(amount > 0, "FlapVault: zero amount");
-        require(vaultBalance + amount >= MIN_VAULT, "FlapVault: below $100 minimum");
-        _safeTransferFrom(collateral, opener, address(this), amount);
-        vaultBalance += amount;
+    function depositVault(uint256 a) external onlyOpener notClosed {
+        require(a > 0 && vaultBalance + a >= MIN_VAULT, "V:dv");
+        _stf(collateral, opener, address(this), a);
+        vaultBalance += a;
         if (block.timestamp >= vaultLockedUntil) vaultLockedUntil = block.timestamp + lockDuration;
-        emit VaultDeposited(opener, amount, vaultLockedUntil);
-        _checkAndUpdateHealth();
+        emit VaultDeposited(opener, a, vaultLockedUntil);
+        _health();
     }
-
-    function depositInsurance(uint256 amount) external onlyOpener notClosed {
-        require(amount > 0, "FlapVault: zero amount");
-        uint256 mcap   = _getMcap();
-        uint256 minIns = FlapParams.calcMinInsurance(mcap);
-        require(insuranceBalance + amount >= minIns, "FlapVault: below insurance minimum");
-        _safeTransferFrom(collateral, opener, address(this), amount);
-        insuranceBalance += amount;
+    function depositInsurance(uint256 a) external onlyOpener notClosed {
+        require(a > 0, "V:di");
+        require(insuranceBalance + a >= FlapParams.calcMinInsurance(_mcap()), "V:dm");
+        _stf(collateral, opener, address(this), a);
+        insuranceBalance += a;
         if (block.timestamp >= insuranceLockedUntil) insuranceLockedUntil = block.timestamp + lockDuration;
-        emit InsuranceDeposited(opener, amount, insuranceLockedUntil);
+        emit InsuranceDeposited(opener, a, insuranceLockedUntil);
     }
-
     function requestWithdrawal() external onlyOpener notClosed {
-        require(block.timestamp >= vaultLockedUntil, "FlapVault: vault still locked");
-        require(!withdrawalRequested, "FlapVault: already requested");
+        require(block.timestamp >= vaultLockedUntil && !withdrawalRequested, "V:rw");
         withdrawalRequested = true;
-        IFlapPerpsForVault(perps).forceCloseAll();
+        IPerpsV(perps).forceCloseAll();
         emit VaultWithdrawalRequested(opener);
     }
-
     function completeWithdrawal() external onlyOpener {
-        require(withdrawalRequested, "FlapVault: withdrawal not requested");
-        require(IFlapPerpsForVault(perps).getOpenPositionCount() == 0, "FlapVault: open positions remain");
-        uint256 vaultOut     = vaultBalance;
-        uint256 insuranceOut = insuranceBalance;
-        vaultBalance     = 0;
-        insuranceBalance = 0;
-        marketClosed     = true;
-        if (vaultOut     > 0) _safeTransfer(collateral, opener, vaultOut);
-        if (insuranceOut > 0) _safeTransfer(collateral, opener, insuranceOut);
-        emit VaultWithdrawn(opener, vaultOut, insuranceOut);
+        require(withdrawalRequested && IPerpsV(perps).getOpenPositionCount() == 0, "V:cw");
+        uint256 vo = vaultBalance; uint256 io = insuranceBalance;
+        vaultBalance = 0; insuranceBalance = 0; marketClosed = true;
+        if (vo > 0) _st(collateral, opener, vo);
+        if (io > 0) _st(collateral, opener, io);
+        emit VaultWithdrawn(opener, vo, io);
     }
-
     function emergencyWithdraw(address to) external onlyPlatformAdmin {
-        require(to != address(0), "FlapVault: zero recipient");
-        uint256 total    = vaultBalance + insuranceBalance;
-        vaultBalance     = 0;
-        insuranceBalance = 0;
-        marketClosed     = true;
-        if (total > 0) _safeTransfer(collateral, to, total);
-        emit EmergencyWithdraw(to, total);
+        require(to != address(0), "V:ew");
+        uint256 t = vaultBalance + insuranceBalance;
+        vaultBalance = 0; insuranceBalance = 0; marketClosed = true;
+        if (t > 0) _st(collateral, to, t);
+        emit EmergencyWithdraw(to, t);
     }
-
-    function payTrader(address trader, uint256 amount) external onlyPerps {
-        if (amount == 0) return;
-        if (vaultBalance >= amount) {
-            vaultBalance -= amount;
-            _safeTransfer(collateral, trader, amount);
-        } else if (vaultBalance + insuranceBalance >= amount) {
-            uint256 fromVault     = vaultBalance;
-            uint256 fromInsurance = amount - fromVault;
-            vaultBalance     = 0;
-            insuranceBalance -= fromInsurance;
-            _safeTransfer(collateral, trader, amount);
+    function payTrader(address trader, uint256 a) external onlyPerps {
+        if (a == 0) return;
+        if (vaultBalance >= a) {
+            vaultBalance -= a; _st(collateral, trader, a);
+        } else if (vaultBalance + insuranceBalance >= a) {
+            uint256 fv = vaultBalance; vaultBalance = 0; insuranceBalance -= a - fv; _st(collateral, trader, a);
         } else {
-            uint256 available = vaultBalance + insuranceBalance;
-            vaultBalance     = 0;
-            insuranceBalance = 0;
-            if (available > 0) _safeTransfer(collateral, trader, available);
-            emit TraderRefunded(trader, available);
-            return;
+            uint256 av = vaultBalance + insuranceBalance;
+            vaultBalance = 0; insuranceBalance = 0;
+            if (av > 0) _st(collateral, trader, av);
+            emit TraderRefunded(trader, av); return;
         }
-        emit TraderRefunded(trader, amount);
-        _checkAndUpdateHealth();
+        emit TraderRefunded(trader, a); _health();
     }
+    function addToInsurance(uint256 a) external onlyPerps { if (a > 0) insuranceBalance += a; }
+    function addToVault(uint256 a)     external onlyPerps { if (a > 0) vaultBalance     += a; }
+    function checkHealth() external notClosed { _health(); }
 
-    function addToInsurance(uint256 amount) external onlyPerps { if (amount > 0) insuranceBalance += amount; }
-    function addToVault(uint256 amount)     external onlyPerps { if (amount > 0) vaultBalance     += amount; }
-    function checkHealth() external notClosed { _checkAndUpdateHealth(); }
-
-    function _checkAndUpdateHealth() internal {
-        uint256 mcap   = _getMcap();
-        uint256 maxOI  = FlapParams.calcMaxOI(mcap);
-        uint8   health = FlapParams.vaultHealth(vaultBalance, maxOI);
-        emit VaultHealthUpdated(health);
-        if (health == 2) {
+    function _health() internal {
+        uint256 maxOI = FlapParams.calcMaxOI(_mcap());
+        uint8 h = FlapParams.vaultHealth(vaultBalance, maxOI);
+        emit VaultHealthUpdated(h);
+        if (h == 2) {
             if (frozenAt == 0) { frozenAt = block.timestamp; emit MarketFrozen(frozenAt); }
-            else if (block.timestamp - frozenAt >= GRACE_PERIOD) { _triggerForceClose(); }
+            else if (block.timestamp - frozenAt >= GRACE_PERIOD) { IPerpsV(perps).forceCloseAll(); marketClosed = true; emit MarketForceClosedByHealth(); }
         } else { frozenAt = 0; }
     }
-
-    function _triggerForceClose() internal {
-        IFlapPerpsForVault(perps).forceCloseAll();
-        marketClosed = true;
-        emit MarketForceClosedByHealth();
-    }
-
-    function getHealth() external view returns (uint8) {
-        return FlapParams.vaultHealth(vaultBalance, FlapParams.calcMaxOI(_getMcap()));
-    }
-    function isWithdrawable()     external view returns (bool) { return block.timestamp >= vaultLockedUntil; }
-    function isFrozen()           external view returns (bool) { return FlapParams.vaultHealth(vaultBalance, FlapParams.calcMaxOI(_getMcap())) == 2; }
-    function isWithdrawalBlocked() external view returns (bool) { return withdrawalRequested || marketClosed; }
+    function isFrozen()            external view returns (bool)   { return FlapParams.vaultHealth(vaultBalance, FlapParams.calcMaxOI(_mcap())) == 2; }
+    function isWithdrawalBlocked() external view returns (bool)   { return withdrawalRequested || marketClosed; }
+    function getHealth()           external view returns (uint8)  { return FlapParams.vaultHealth(vaultBalance, FlapParams.calcMaxOI(_mcap())); }
+    function isWithdrawable()      external view returns (bool)   { return block.timestamp >= vaultLockedUntil; }
     function trustBadgeName() external view returns (string memory) {
         if (trustBadge == 3) return "Platinum";
         if (trustBadge == 2) return "Gold";
         if (trustBadge == 1) return "Silver";
         return "None";
     }
-
-    function _getMcap() internal view returns (uint256) {
-        (bool ok, bytes memory data) = oracle.staticcall(abi.encodeWithSignature("getMcap(address)", token));
-        if (!ok || data.length == 0) return 0;
-        return abi.decode(data, (uint256));
+    function _mcap() internal view returns (uint256) {
+        (bool ok, bytes memory d) = oracle.staticcall(abi.encodeWithSignature("getMcap(address)", token));
+        return (ok && d.length > 0) ? abi.decode(d, (uint256)) : 0;
     }
-    function _safeTransfer(address _token, address to, uint256 amount) internal {
-        require(IERC20Safe(_token).transfer(to, amount), "FlapVault: transfer failed");
-    }
-    function _safeTransferFrom(address _token, address from, address to, uint256 amount) internal {
-        require(IERC20Safe(_token).transferFrom(from, to, amount), "FlapVault: transferFrom failed");
-    }
+    function _st(address t, address to, uint256 a) internal  { require(IERC20V(t).transfer(to, a), "V:tf"); }
+    function _stf(address t, address f, address to, uint256 a) internal { require(IERC20V(t).transferFrom(f, to, a), "V:tff"); }
 }
 
-interface IFlapOracle {
-    function getPrice(address token) external view returns (uint256);
-    function getMcap(address token)  external view returns (uint256);
-    function isFresh(address token)  external view returns (bool);
+interface IOracle {
+    function getPrice(address t) external view returns (uint256);
+    function getMcap(address t)  external view returns (uint256);
+    function isFresh(address t)  external view returns (bool);
 }
-
-interface IFlapVaultPerps {
-    function payTrader(address trader, uint256 amount) external;
-    function addToInsurance(uint256 amount) external;
-    function addToVault(uint256 amount) external;
+interface IVaultP {
+    function payTrader(address trader, uint256 a) external;
+    function addToInsurance(uint256 a) external;
+    function addToVault(uint256 a) external;
     function isFrozen() external view returns (bool);
     function isWithdrawalBlocked() external view returns (bool);
     function marketClosed() external view returns (bool);
 }
-
-interface IERC20Perps {
-    function transfer(address to, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
+interface IERC20P {
+    function transfer(address to, uint256 a) external returns (bool);
+    function transferFrom(address f, address t, uint256 a) external returns (bool);
+    function balanceOf(address a) external view returns (uint256);
+    function approve(address s, uint256 a) external returns (bool);
 }
 
 contract FlapPerps {
-    using FlapParams for uint256;
-
     address public immutable token;
     address public immutable collateral;
     address public immutable vault;
@@ -347,31 +265,23 @@ contract FlapPerps {
     address public immutable botOperator;
     address public immutable factory;
 
-    uint256 public constant OPENER_FEE_SHARE    = 8000;
-    uint256 public constant PLATFORM_FEE_SHARE  = 2000;
-    uint256 public constant BPS_DENOM           = 10_000;
-    uint256 public constant TRADE_FEE_BPS       = 10;
-    uint256 public constant MIN_TRADE_FEE       = 1e18;
-    uint256 public constant LIQ_THRESHOLD_BPS   = 8000;
-    uint256 public constant LIQ_INSURANCE_SHARE = 5000;
-    uint256 public constant LIQ_BOT_SHARE       = 3000;
-    uint256 public constant LIQ_PLATFORM_SHARE  = 2000;
+    uint256 public constant OPENER_SHARE   = 8000;
+    uint256 public constant PLATFORM_SHARE = 2000;
+    uint256 public constant BPS            = 10_000;
+    uint256 public constant FEE_BPS        = 10;
+    uint256 public constant MIN_FEE        = 1e18;
+    uint256 public constant LIQ_BPS        = 8000;
+    uint256 public constant LIQ_INS        = 5000;
+    uint256 public constant LIQ_BOT        = 3000;
+    uint256 public constant LIQ_PLAT       = 2000;
 
     struct Position {
-        address trader;
-        uint256 margin;
-        uint8   leverage;
-        bool    isLong;
-        uint256 entryPrice;
-        uint256 size;
-        uint256 openedAt;
-        bool    isOpen;
-        int256  fundingAccrued;
+        address trader; uint256 margin; uint8 leverage; bool isLong;
+        uint256 entryPrice; uint256 size; uint256 openedAt; bool isOpen; int256 fundingAccrued;
     }
 
     mapping(uint256 => Position) public positions;
     mapping(address => uint256[]) public traderPositions;
-
     uint256 public nextPositionId = 1;
     uint256 public totalLongOI;
     uint256 public totalShortOI;
@@ -383,283 +293,182 @@ contract FlapPerps {
     int256  public cumulativeLongFunding;
     int256  public cumulativeShortFunding;
 
-    event PositionOpened(uint256 indexed positionId, address indexed trader, bool isLong, uint256 margin, uint8 leverage, uint256 entryPrice, uint256 spreadFee);
-    event PositionClosed(uint256 indexed positionId, address indexed trader, int256 pnl, uint256 exitPrice, uint256 spreadFee);
-    event PositionLiquidated(uint256 indexed positionId, address indexed trader, uint256 liquidationPrice, uint256 remainingMargin);
+    event PositionOpened(uint256 indexed id, address indexed trader, bool isLong, uint256 margin, uint8 leverage, uint256 entryPrice, uint256 fee);
+    event PositionClosed(uint256 indexed id, address indexed trader, int256 pnl, uint256 exitPrice, uint256 fee);
+    event PositionLiquidated(uint256 indexed id, address indexed trader, uint256 price, uint256 remaining);
     event FeesClaimed(address indexed opener, uint256 amount);
-    event FundingApplied(int256 longPerUnit, int256 shortPerUnit);
+    event FundingApplied(int256 lf, int256 sf);
     event EmergencyDrain(address indexed to, uint256 amount);
 
-    modifier onlyFunding() { require(msg.sender == funding, "FlapPerps: not funding contract"); _; }
+    modifier onlyFunding() { require(msg.sender == funding, "P:fn"); _; }
     modifier onlyPlatform() {
-        require(
-            msg.sender == platformFeeWallet ||
-            (platformContract != address(0) && msg.sender == platformContract),
-            "FlapPerps: not platform"
-        );
+        require(msg.sender == platformFeeWallet || (platformContract != address(0) && msg.sender == platformContract), "P:pl");
         _;
     }
     modifier marketActive() {
-        require(!IFlapVaultPerps(vault).marketClosed(),          "FlapPerps: market closed");
-        require(!IFlapVaultPerps(vault).isWithdrawalBlocked(),   "FlapPerps: withdrawal in progress");
+        require(!IVaultP(vault).marketClosed() && !IVaultP(vault).isWithdrawalBlocked(), "P:ma");
         _;
     }
-    modifier priceIsFresh() { require(IFlapOracle(oracle).isFresh(token), "FlapPerps: price stale"); _; }
+    modifier priceIsFresh() { require(IOracle(oracle).isFresh(token), "P:ps"); _; }
 
     constructor(
-        address _token, address _collateral, address _vault,
-        address _oracle, address _funding, address _opener,
-        address _platformFeeWallet, address _botOperator, address _factory
+        address _token, address _collateral, address _vault, address _oracle,
+        address _funding, address _opener, address _pfw, address _bot, address _factory
     ) {
-        require(_token             != address(0), "FlapPerps: zero token");
-        require(_collateral        != address(0), "FlapPerps: zero collateral");
-        require(_vault             != address(0), "FlapPerps: zero vault");
-        require(_oracle            != address(0), "FlapPerps: zero oracle");
-        require(_funding           != address(0), "FlapPerps: zero funding");
-        require(_opener            != address(0), "FlapPerps: zero opener");
-        require(_platformFeeWallet != address(0), "FlapPerps: zero fee wallet");
-        require(_botOperator       != address(0), "FlapPerps: zero bot");
-        require(_factory           != address(0), "FlapPerps: zero factory");
-        token             = _token;
-        collateral        = _collateral;
-        vault             = _vault;
-        oracle            = _oracle;
-        funding           = _funding;
-        opener            = _opener;
-        platformFeeWallet = _platformFeeWallet;
-        botOperator       = _botOperator;
-        factory           = _factory;
-        IERC20Perps(_collateral).approve(_funding, type(uint256).max);
+        require(_token != address(0) && _collateral != address(0) && _vault != address(0), "P:0a");
+        require(_oracle != address(0) && _funding != address(0) && _opener != address(0),  "P:0b");
+        require(_pfw != address(0) && _bot != address(0) && _factory != address(0),        "P:0c");
+        token = _token; collateral = _collateral; vault = _vault; oracle = _oracle;
+        funding = _funding; opener = _opener; platformFeeWallet = _pfw;
+        botOperator = _bot; factory = _factory;
+        IERC20P(_collateral).approve(_funding, type(uint256).max);
     }
 
-    function _validateOpen(uint256 margin, uint8 leverage) internal view returns (
-        uint256 notional, uint256 openFee, uint256 price
-    ) {
-        uint256 mcap = IFlapOracle(oracle).getMcap(token);
-        require(leverage >= 1 && leverage <= FlapParams.calcMaxLeverage(mcap), "FlapPerps: leverage out of range");
-        require(margin >= FlapParams.MIN_POSITION && margin <= FlapParams.calcMaxPosition(mcap), "FlapPerps: position size out of range");
+    function _validateOpen(uint256 margin, uint8 leverage) internal view returns (uint256 notional, uint256 fee, uint256 price) {
+        uint256 mcap = IOracle(oracle).getMcap(token);
+        require(leverage >= 1 && leverage <= FlapParams.calcMaxLeverage(mcap), "P:lv");
+        require(margin >= FlapParams.MIN_POSITION && margin <= FlapParams.calcMaxPosition(mcap), "P:sz");
         notional = margin * leverage;
-        require(totalLongOI + totalShortOI + notional <= FlapParams.calcMaxOI(mcap), "FlapPerps: OI cap reached");
-        uint256 rawFee = (notional * TRADE_FEE_BPS) / BPS_DENOM;
-        openFee = rawFee < MIN_TRADE_FEE ? MIN_TRADE_FEE : rawFee;
-        price   = IFlapOracle(oracle).getPrice(token);
+        require(totalLongOI + totalShortOI + notional <= FlapParams.calcMaxOI(mcap), "P:oi");
+        uint256 rawFee = (notional * FEE_BPS) / BPS;
+        fee   = rawFee < MIN_FEE ? MIN_FEE : rawFee;
+        price = IOracle(oracle).getPrice(token);
     }
 
-    function _writePosition(
-        uint256 posId, address trader,
-        uint256 margin, uint8 leverage, bool isLong,
-        uint256 price, uint256 notional
-    ) internal {
-        Position storage p = positions[posId];
-        p.trader     = trader;
-        p.margin     = margin;
-        p.leverage   = leverage;
-        p.isLong     = isLong;
-        p.entryPrice = price;
-        p.size       = notional;
-        p.openedAt   = block.timestamp;
-        p.isOpen     = true;
+    function _writePos(uint256 id, address trader, uint256 margin, uint8 leverage, bool isLong, uint256 price, uint256 notional) internal {
+        Position storage p = positions[id];
+        p.trader = trader; p.margin = margin; p.leverage = leverage; p.isLong = isLong;
+        p.entryPrice = price; p.size = notional; p.openedAt = block.timestamp; p.isOpen = true;
     }
 
     function openPosition(uint256 margin, uint8 leverage, bool isLong) external marketActive priceIsFresh {
-        require(!emergencyPaused,                    "FlapPerps: emergency paused");
-        require(!IFlapVaultPerps(vault).isFrozen(),  "FlapPerps: market frozen");
-        (uint256 notional, uint256 openFee, uint256 price) = _validateOpen(margin, leverage);
-        _safeTransferFrom(collateral, msg.sender, address(this), margin + openFee);
-        pendingOpenerFees += (openFee * OPENER_FEE_SHARE) / BPS_DENOM;
-        _safeTransfer(collateral, platformFeeWallet, (openFee * PLATFORM_FEE_SHARE) / BPS_DENOM);
-        _safeTransfer(collateral, vault, margin);
-        IFlapVaultPerps(vault).addToVault(margin);
-        uint256 posId = nextPositionId++;
-        _writePosition(posId, msg.sender, margin, leverage, isLong, price, notional);
-        traderPositions[msg.sender].push(posId);
-        if (isLong) totalLongOI  += notional;
-        else        totalShortOI += notional;
+        require(!emergencyPaused && !IVaultP(vault).isFrozen(), "P:ep");
+        (uint256 notional, uint256 fee, uint256 price) = _validateOpen(margin, leverage);
+        _stf(collateral, msg.sender, address(this), margin + fee);
+        pendingOpenerFees += (fee * OPENER_SHARE) / BPS;
+        _st(collateral, platformFeeWallet, (fee * PLATFORM_SHARE) / BPS);
+        _st(collateral, vault, margin);
+        IVaultP(vault).addToVault(margin);
+        uint256 id = nextPositionId++;
+        _writePos(id, msg.sender, margin, leverage, isLong, price, notional);
+        traderPositions[msg.sender].push(id);
+        if (isLong) totalLongOI += notional; else totalShortOI += notional;
         openPositionCount++;
-        emit PositionOpened(posId, msg.sender, isLong, margin, leverage, price, openFee);
+        emit PositionOpened(id, msg.sender, isLong, margin, leverage, price, fee);
     }
 
-    function closePosition(uint256 positionId) external priceIsFresh {
-        Position storage pos = positions[positionId];
-        require(pos.isOpen,              "FlapPerps: not open");
-        require(pos.trader == msg.sender,"FlapPerps: not your position");
-        _closePosition(positionId, IFlapOracle(oracle).getPrice(token), false);
+    function closePosition(uint256 posId) external priceIsFresh {
+        Position storage pos = positions[posId];
+        require(pos.isOpen && pos.trader == msg.sender, "P:cp");
+        _close(posId, IOracle(oracle).getPrice(token), false);
     }
 
     function forceCloseAll() external {
-        require(msg.sender == vault, "FlapPerps: not vault");
-        uint256 price = _getLatestPrice();
-        for (uint256 i = 1; i < nextPositionId; i++) {
-            if (positions[i].isOpen) _closePosition(i, price, true);
-        }
+        require(msg.sender == vault, "P:fc");
+        uint256 price = _latestPrice();
+        for (uint256 i = 1; i < nextPositionId; i++) { if (positions[i].isOpen) _close(i, price, true); }
     }
 
-    function liquidate(uint256 positionId) external priceIsFresh {
-        Position storage pos = positions[positionId];
-        require(pos.isOpen, "FlapPerps: not open");
-        uint256 currentPrice = IFlapOracle(oracle).getPrice(token);
-        require(_isLiquidatable(pos, currentPrice), "FlapPerps: not liquidatable");
-        uint256 remainingMargin = (pos.margin * (BPS_DENOM - LIQ_THRESHOLD_BPS)) / BPS_DENOM;
-        uint256 toInsurance = (remainingMargin * LIQ_INSURANCE_SHARE) / BPS_DENOM;
-        uint256 toBot       = (remainingMargin * LIQ_BOT_SHARE)       / BPS_DENOM;
-        uint256 toPlatform  = remainingMargin - toInsurance - toBot;
-        IFlapVaultPerps(vault).addToInsurance(toInsurance);
-        if (toBot      > 0) _safeTransfer(collateral, msg.sender,        toBot);
-        if (toPlatform > 0) _safeTransfer(collateral, platformFeeWallet, toPlatform);
-        _removeFromOI(pos);
-        pos.isOpen = false;
-        openPositionCount--;
-        emit PositionLiquidated(positionId, pos.trader, currentPrice, remainingMargin);
+    function liquidate(uint256 posId) external priceIsFresh {
+        Position storage pos = positions[posId];
+        require(pos.isOpen, "P:lo");
+        uint256 cp = IOracle(oracle).getPrice(token);
+        require(_liqCheck(pos, cp), "P:ln");
+        uint256 rem = (pos.margin * (BPS - LIQ_BPS)) / BPS;
+        uint256 ins = (rem * LIQ_INS) / BPS;
+        uint256 bot = (rem * LIQ_BOT) / BPS;
+        IVaultP(vault).addToInsurance(ins);
+        if (bot > 0)       _st(collateral, msg.sender,        bot);
+        if (rem-ins-bot>0) _st(collateral, platformFeeWallet, rem-ins-bot);
+        _rmOI(pos); pos.isOpen = false; openPositionCount--;
+        emit PositionLiquidated(posId, pos.trader, cp, rem);
     }
 
-    function applyFunding(int256 longFundingPerUnit, int256 shortFundingPerUnit) external onlyFunding {
-        cumulativeLongFunding  += longFundingPerUnit;
-        cumulativeShortFunding += shortFundingPerUnit;
-        emit FundingApplied(longFundingPerUnit, shortFundingPerUnit);
+    function applyFunding(int256 lf, int256 sf) external onlyFunding {
+        cumulativeLongFunding += lf; cumulativeShortFunding += sf;
+        emit FundingApplied(lf, sf);
     }
-
     function claimFees() external {
-        require(msg.sender == opener, "FlapPerps: not opener");
-        uint256 amount = pendingOpenerFees;
-        require(amount > 0, "FlapPerps: no fees");
-        pendingOpenerFees = 0;
-        _safeTransfer(collateral, opener, amount);
-        emit FeesClaimed(opener, amount);
+        require(msg.sender == opener, "P:cf");
+        uint256 a = pendingOpenerFees; require(a > 0, "P:c0");
+        pendingOpenerFees = 0; _st(collateral, opener, a);
+        emit FeesClaimed(opener, a);
     }
-
-    function setParamsLocked(bool locked) external onlyPlatform { paramsLocked = locked; }
+    function setParamsLocked(bool v) external onlyPlatform { paramsLocked = v; }
     function emergencyPause()   external onlyPlatform { emergencyPaused = true;  }
     function emergencyUnpause() external onlyPlatform { emergencyPaused = false; }
-
-    function setPlatformContract(address _platform) external {
-        require(msg.sender == factory || msg.sender == platformFeeWallet, "FlapPerps: not factory or platform fee wallet");
-        require(platformContract == address(0), "FlapPerps: platform already set");
-        require(_platform        != address(0), "FlapPerps: zero platform");
-        platformContract = _platform;
+    function setPlatformContract(address _p) external {
+        require(msg.sender == factory || msg.sender == platformFeeWallet, "P:sf");
+        require(platformContract == address(0) && _p != address(0), "P:sp");
+        platformContract = _p;
     }
-
     function emergencyDrain(address to) external onlyPlatform {
-        require(to != address(0), "FlapPerps: zero recipient");
-        uint256 bal = IERC20Perps(collateral).balanceOf(address(this));
-        if (bal > 0) require(IERC20Perps(collateral).transfer(to, bal), "FlapPerps: drain failed");
-        emit EmergencyDrain(to, bal);
+        require(to != address(0), "P:ed");
+        uint256 b = IERC20P(collateral).balanceOf(address(this));
+        if (b > 0) require(IERC20P(collateral).transfer(to, b), "P:et");
+        emit EmergencyDrain(to, b);
     }
 
-    function getLongRatio() external view returns (uint256) {
-        uint256 total = totalLongOI + totalShortOI;
-        if (total == 0) return 50;
-        return (totalLongOI * 100) / total;
-    }
+    function getLongRatio()           external view returns (uint256) { uint256 t = totalLongOI + totalShortOI; return t == 0 ? 50 : (totalLongOI * 100) / t; }
     function getTotalOI()             external view returns (uint256) { return totalLongOI + totalShortOI; }
     function getTotalOpenInterest()   external view returns (uint256) { return totalLongOI + totalShortOI; }
     function getOpenPositionCount()   external view returns (uint256) { return openPositionCount; }
     function getPosition(uint256 id)  external view returns (Position memory) { return positions[id]; }
-    function getTraderPositions(address trader) external view returns (uint256[] memory) { return traderPositions[trader]; }
-
-    function getUnrealizedPnl(uint256 positionId) external view returns (int256) {
-        Position memory pos = positions[positionId];
-        if (!pos.isOpen) return 0;
-        return _calcPnl(pos, _getLatestPrice());
+    function getTraderPositions(address t) external view returns (uint256[] memory) { return traderPositions[t]; }
+    function getUnrealizedPnl(uint256 id) external view returns (int256) { Position memory p = positions[id]; return p.isOpen ? _pnl(p, _latestPrice()) : 0; }
+    function isLiquidatable(uint256 id)   external view returns (bool) { Position memory p = positions[id]; return p.isOpen && _liqCheck(p, _latestPrice()); }
+    function getCurrentParams() external view returns (uint256 spread, uint8 maxLev, uint256 maxPos, uint256 maxOI, uint256 curOI) {
+        uint256 m = IOracle(oracle).getMcap(token);
+        spread = FlapParams.calcSpread(m); maxLev = FlapParams.calcMaxLeverage(m);
+        maxPos = FlapParams.calcMaxPosition(m); maxOI = FlapParams.calcMaxOI(m); curOI = totalLongOI + totalShortOI;
     }
 
-    function isLiquidatable(uint256 positionId) external view returns (bool) {
-        Position memory pos = positions[positionId];
-        if (!pos.isOpen) return false;
-        return _isLiquidatable(pos, _getLatestPrice());
-    }
-
-    function getCurrentParams() external view returns (uint256 spread, uint8 maxLeverage, uint256 maxPosition, uint256 maxOI, uint256 currentOI) {
-        uint256 mcap = IFlapOracle(oracle).getMcap(token);
-        spread      = FlapParams.calcSpread(mcap);
-        maxLeverage = FlapParams.calcMaxLeverage(mcap);
-        maxPosition = FlapParams.calcMaxPosition(mcap);
-        maxOI       = FlapParams.calcMaxOI(mcap);
-        currentOI   = totalLongOI + totalShortOI;
-    }
-
-    function _closePosition(uint256 posId, uint256 exitPrice, bool isForced) internal {
-        Position storage pos = positions[posId];
-        uint256 rawCloseFee = (pos.size * TRADE_FEE_BPS) / BPS_DENOM;
-        uint256 closeFee    = rawCloseFee < MIN_TRADE_FEE ? MIN_TRADE_FEE : rawCloseFee;
-        int256 pnl = _calcPnl(pos, exitPrice);
-        int256 fundingDelta = pos.isLong
-            ? (cumulativeLongFunding  - pos.fundingAccrued)
-            : (cumulativeShortFunding - pos.fundingAccrued);
-        pnl += fundingDelta;
-        int256 netPayout = int256(pos.margin) + pnl - int256(closeFee);
-        if (netPayout > 0) IFlapVaultPerps(vault).payTrader(pos.trader, uint256(netPayout));
-        if (!isForced && closeFee > 0) {
-            pendingOpenerFees += (closeFee * OPENER_FEE_SHARE) / BPS_DENOM;
-            uint256 pc = (closeFee * PLATFORM_FEE_SHARE) / BPS_DENOM;
-            if (pc > 0) _safeTransfer(collateral, platformFeeWallet, pc);
+    function _close(uint256 id, uint256 ep, bool forced) internal {
+        Position storage pos = positions[id];
+        uint256 rf = (pos.size * FEE_BPS) / BPS;
+        uint256 cf = rf < MIN_FEE ? MIN_FEE : rf;
+        int256 p = _pnl(pos, ep);
+        p += pos.isLong ? (cumulativeLongFunding - pos.fundingAccrued) : (cumulativeShortFunding - pos.fundingAccrued);
+        int256 net = int256(pos.margin) + p - int256(cf);
+        if (net > 0) IVaultP(vault).payTrader(pos.trader, uint256(net));
+        if (!forced && cf > 0) {
+            pendingOpenerFees += (cf * OPENER_SHARE) / BPS;
+            uint256 pc = (cf * PLATFORM_SHARE) / BPS;
+            if (pc > 0) _st(collateral, platformFeeWallet, pc);
         }
-        _removeFromOI(pos);
-        pos.isOpen = false;
-        openPositionCount--;
-        emit PositionClosed(posId, pos.trader, pnl, exitPrice, closeFee);
+        _rmOI(pos); pos.isOpen = false; openPositionCount--;
+        emit PositionClosed(id, pos.trader, p, ep, cf);
     }
-
-    function _calcPnl(Position memory pos, uint256 currentPrice) internal pure returns (int256) {
+    function _pnl(Position memory pos, uint256 cp) internal pure returns (int256) {
         if (pos.entryPrice == 0) return 0;
-        int256 priceMove = int256(currentPrice) - int256(pos.entryPrice);
-        int256 pnl = (priceMove * int256(pos.size)) / int256(pos.entryPrice);
-        return pos.isLong ? pnl : -pnl;
+        int256 mv = (int256(cp) - int256(pos.entryPrice)) * int256(pos.size) / int256(pos.entryPrice);
+        return pos.isLong ? mv : -mv;
     }
-
-    function _isLiquidatable(Position memory pos, uint256 currentPrice) internal pure returns (bool) {
+    function _liqCheck(Position memory pos, uint256 cp) internal pure returns (bool) {
         uint256 loss;
-        if (pos.isLong) {
-            if (currentPrice >= pos.entryPrice) return false;
-            loss = (pos.entryPrice - currentPrice) * pos.size / pos.entryPrice;
-        } else {
-            if (currentPrice <= pos.entryPrice) return false;
-            loss = (currentPrice - pos.entryPrice) * pos.size / pos.entryPrice;
-        }
-        return loss >= (pos.margin * LIQ_THRESHOLD_BPS) / BPS_DENOM;
+        if (pos.isLong)  { if (cp >= pos.entryPrice) return false; loss = (pos.entryPrice - cp) * pos.size / pos.entryPrice; }
+        else             { if (cp <= pos.entryPrice) return false; loss = (cp - pos.entryPrice) * pos.size / pos.entryPrice; }
+        return loss >= (pos.margin * LIQ_BPS) / BPS;
     }
-
-    function _removeFromOI(Position memory pos) internal {
+    function _rmOI(Position memory pos) internal {
         if (pos.isLong) { if (totalLongOI  >= pos.size) totalLongOI  -= pos.size; else totalLongOI  = 0; }
         else            { if (totalShortOI >= pos.size) totalShortOI -= pos.size; else totalShortOI = 0; }
     }
-
-    function _getLatestPrice() internal view returns (uint256) {
-        (bool ok, bytes memory data) = oracle.staticcall(abi.encodeWithSignature("getPrice(address)", token));
-        if (!ok || data.length == 0) return 0;
-        return abi.decode(data, (uint256));
+    function _latestPrice() internal view returns (uint256) {
+        (bool ok, bytes memory d) = oracle.staticcall(abi.encodeWithSignature("getPrice(address)", token));
+        return (ok && d.length > 0) ? abi.decode(d, (uint256)) : 0;
     }
-
-    function _safeTransfer(address _token, address to, uint256 amount) internal {
-        require(IERC20Perps(_token).transfer(to, amount), "FlapPerps: transfer failed");
-    }
-    function _safeTransferFrom(address _token, address from, address to, uint256 amount) internal {
-        require(IERC20Perps(_token).transferFrom(from, to, amount), "FlapPerps: transferFrom failed");
-    }
+    function _st(address t, address to, uint256 a) internal  { require(IERC20P(t).transfer(to, a), "P:st"); }
+    function _stf(address t, address f, address to, uint256 a) internal { require(IERC20P(t).transferFrom(f, to, a), "P:sf"); }
 }
 
-interface IFlapFundingRegistry {
-    function registerMarket(address perps) external;
-}
-
-interface IERC20Factory {
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-}
-
-interface IFlapVaultInit {
-    function initDeposit(uint256 vaultAmount, uint256 insuranceAmount) external;
-}
-
-interface IFlapVaultPlatform {
-    function setPlatformContract(address _platform) external;
-}
-
-interface IFlapPerpsPlatform {
-    function setPlatformContract(address _platform) external;
-}
+interface IFundingReg { function registerMarket(address perps) external; }
+interface IERC20F     { function approve(address s, uint256 a) external returns (bool); function transferFrom(address f, address t, uint256 a) external returns (bool); }
+interface IVaultInit  { function initDeposit(uint256 va, uint256 ia) external; }
+interface IVaultPlat  { function setPlatformContract(address p) external; }
+interface IPerpsPlat  { function setPlatformContract(address p) external; }
 
 contract FlapFactory {
-
     address public botOperator;
     address public platform;
     address public platformFeeWallet;
@@ -667,112 +476,72 @@ contract FlapFactory {
     address public oracleAddress;
     address public fundingAddress;
 
-    struct MarketAddresses {
-        address vault;
-        address perps;
-        address opener;
-        uint256 createdAt;
-        bool    exists;
-    }
-
+    struct MarketAddresses { address vault; address perps; address opener; uint256 createdAt; bool exists; }
     mapping(address => MarketAddresses) public markets;
     address[] public allTokens;
 
-    event MarketCreated(address indexed token, address indexed opener, address vault, address perps, uint256 lockDuration);
-    event BotOperatorUpdated(address indexed newOperator);
-    event PlatformFeeWalletUpdated(address indexed newWallet);
-    event PlatformUpdated(address indexed newPlatform);
+    event MarketCreated(address indexed token, address indexed opener, address vault, address perps, uint256 lock);
+    event BotOperatorUpdated(address indexed n);
+    event PlatformFeeWalletUpdated(address indexed n);
+    event PlatformUpdated(address indexed n);
 
-    modifier onlyBot()           { require(msg.sender == botOperator,                              "FlapFactory: not bot operator");    _; }
-    modifier onlyBotOrPlatform() { require(msg.sender == botOperator || msg.sender == platform,    "FlapFactory: not bot or platform"); _; }
+    modifier onlyBot()  { require(msg.sender == botOperator, "F:bt"); _; }
+    modifier onlyBotOrPlatform() { require(msg.sender == botOperator || msg.sender == platform, "F:bp"); _; }
 
-    constructor(
-        address _botOperator, address _platform, address _platformFeeWallet,
-        address _collateralToken, address _oracleAddress, address _fundingAddress
-    ) {
-        require(_botOperator       != address(0), "FlapFactory: zero bot");
-        require(_platformFeeWallet != address(0), "FlapFactory: zero fee wallet");
-        require(_collateralToken   != address(0), "FlapFactory: zero collateral");
-        require(_oracleAddress     != address(0), "FlapFactory: zero oracle");
-        require(_fundingAddress    != address(0), "FlapFactory: zero funding");
-        botOperator       = _botOperator;
-        platform          = _platform;
-        platformFeeWallet = _platformFeeWallet;
-        collateralToken   = _collateralToken;
-        oracleAddress     = _oracleAddress;
-        fundingAddress    = _fundingAddress;
+    constructor(address _bot, address _plat, address _pfw, address _col, address _oracle, address _fund) {
+        require(_bot != address(0) && _pfw != address(0) && _col != address(0), "F:0a");
+        require(_oracle != address(0) && _fund != address(0), "F:0b");
+        botOperator = _bot; platform = _plat; platformFeeWallet = _pfw;
+        collateralToken = _col; oracleAddress = _oracle; fundingAddress = _fund;
     }
 
-    function createMarket(
-        address tokenAddress, address openerWallet, uint256 lockDays
-    ) external onlyBotOrPlatform returns (address vault, address perps) {
-        require(tokenAddress != address(0),         "FlapFactory: zero token");
-        require(openerWallet != address(0),         "FlapFactory: zero opener");
-        require(!markets[tokenAddress].exists,      "FlapFactory: market already exists");
-        uint256 lockDuration = _lockDaysToSeconds(lockDays);
-        FlapVault newVault = new FlapVault(openerWallet, tokenAddress, collateralToken, oracleAddress, address(this), lockDuration, platformFeeWallet);
-        FlapPerps newPerps = new FlapPerps(tokenAddress, collateralToken, address(newVault), oracleAddress, fundingAddress, openerWallet, platformFeeWallet, botOperator, address(this));
-        newVault.setPerps(address(newPerps));
-        if (platform != address(0)) {
-            IFlapVaultPlatform(address(newVault)).setPlatformContract(platform);
-            IFlapPerpsPlatform(address(newPerps)).setPlatformContract(platform);
-        }
-        IFlapFundingRegistry(fundingAddress).registerMarket(address(newPerps));
-        markets[tokenAddress] = MarketAddresses({ vault: address(newVault), perps: address(newPerps), opener: openerWallet, createdAt: block.timestamp, exists: true });
-        allTokens.push(tokenAddress);
-        vault = address(newVault);
-        perps = address(newPerps);
-        emit MarketCreated(tokenAddress, openerWallet, vault, perps, lockDuration);
+    function createMarket(address token, address opener, uint256 lockDays) external onlyBotOrPlatform returns (address vault, address perps) {
+        require(token != address(0) && opener != address(0) && !markets[token].exists, "F:cm");
+        (vault, perps) = _deploy(token, opener, lockDays);
+        emit MarketCreated(token, opener, vault, perps, _lock(lockDays));
     }
 
-    function createMarketWithDeposit(
-        address tokenAddress, address openerWallet, uint256 lockDays,
-        uint256 vaultAmount, uint256 insuranceAmount
-    ) external returns (address vault, address perps) {
-        require(msg.sender == platform,            "FlapFactory: not platform");
-        require(vaultAmount     > 0,               "FlapFactory: zero vault");
-        require(insuranceAmount > 0,               "FlapFactory: zero insurance");
-        require(tokenAddress   != address(0),      "FlapFactory: zero token");
-        require(openerWallet   != address(0),      "FlapFactory: zero opener");
-        require(!markets[tokenAddress].exists,     "FlapFactory: market already exists");
-        uint256 lockDuration = _lockDaysToSeconds(lockDays);
-        FlapVault newVault = new FlapVault(openerWallet, tokenAddress, collateralToken, oracleAddress, address(this), lockDuration, platformFeeWallet);
-        FlapPerps newPerps = new FlapPerps(tokenAddress, collateralToken, address(newVault), oracleAddress, fundingAddress, openerWallet, platformFeeWallet, botOperator, address(this));
-        newVault.setPerps(address(newPerps));
-        IFlapVaultPlatform(address(newVault)).setPlatformContract(msg.sender);
-        IFlapPerpsPlatform(address(newPerps)).setPlatformContract(msg.sender);
-        IFlapFundingRegistry(fundingAddress).registerMarket(address(newPerps));
-        markets[tokenAddress] = MarketAddresses({ vault: address(newVault), perps: address(newPerps), opener: openerWallet, createdAt: block.timestamp, exists: true });
-        allTokens.push(tokenAddress);
-        vault = address(newVault);
-        perps = address(newPerps);
-        require(IERC20Factory(collateralToken).approve(vault, vaultAmount + insuranceAmount), "FlapFactory: USDT approve failed");
-        IFlapVaultInit(vault).initDeposit(vaultAmount, insuranceAmount);
-        emit MarketCreated(tokenAddress, openerWallet, vault, perps, lockDuration);
+    function createMarketWithDeposit(address token, address opener, uint256 lockDays, uint256 va, uint256 ia) external returns (address vault, address perps) {
+        require(msg.sender == platform, "F:np");
+        require(token != address(0) && opener != address(0) && !markets[token].exists, "F:md");
+        require(va > 0 && ia > 0, "F:mn");
+        (vault, perps) = _deploy(token, opener, lockDays);
+        IVaultPlat(vault).setPlatformContract(msg.sender);
+        IPerpsPlat(perps).setPlatformContract(msg.sender);
+        require(IERC20F(collateralToken).approve(vault, va + ia), "F:ap");
+        IVaultInit(vault).initDeposit(va, ia);
+        emit MarketCreated(token, opener, vault, perps, _lock(lockDays));
     }
 
-    function getMarket(address token)   external view returns (MarketAddresses memory) { return markets[token]; }
-    function marketExists(address token) external view returns (bool)                  { return markets[token].exists; }
-    function totalMarkets()              external view returns (uint256)               { return allTokens.length; }
-
-    function getMarkets(uint256 offset, uint256 limit) external view returns (address[] memory tokens, MarketAddresses[] memory addrs) {
-        uint256 end = offset + limit;
-        if (end > allTokens.length) end = allTokens.length;
-        uint256 count = end - offset;
-        tokens = new address[](count);
-        addrs  = new MarketAddresses[](count);
-        for (uint256 i = 0; i < count; i++) { tokens[i] = allTokens[offset + i]; addrs[i] = markets[tokens[i]]; }
+    function _deploy(address token, address opener, uint256 lockDays) internal returns (address vault, address perps) {
+        uint256 ld = _lock(lockDays);
+        FlapVault nv = new FlapVault(opener, token, collateralToken, oracleAddress, address(this), ld, platformFeeWallet);
+        FlapPerps np = new FlapPerps(token, collateralToken, address(nv), oracleAddress, fundingAddress, opener, platformFeeWallet, botOperator, address(this));
+        nv.setPerps(address(np));
+        if (platform != address(0)) { IVaultPlat(address(nv)).setPlatformContract(platform); IPerpsPlat(address(np)).setPlatformContract(platform); }
+        IFundingReg(fundingAddress).registerMarket(address(np));
+        markets[token] = MarketAddresses({ vault: address(nv), perps: address(np), opener: opener, createdAt: block.timestamp, exists: true });
+        allTokens.push(token);
+        vault = address(nv); perps = address(np);
     }
 
-    function setBotOperator(address newBot)       external onlyBotOrPlatform { require(newBot     != address(0), "FlapFactory: zero address"); botOperator       = newBot;      emit BotOperatorUpdated(newBot); }
-    function setPlatformFeeWallet(address newWallet) external onlyBotOrPlatform { require(newWallet  != address(0), "FlapFactory: zero address"); platformFeeWallet = newWallet;   emit PlatformFeeWalletUpdated(newWallet); }
-    function setPlatform(address newPlatform)     external onlyBot           { require(newPlatform != address(0), "FlapFactory: zero platform"); platform          = newPlatform; emit PlatformUpdated(newPlatform); }
+    function getMarket(address t)    external view returns (MarketAddresses memory) { return markets[t]; }
+    function marketExists(address t) external view returns (bool)   { return markets[t].exists; }
+    function totalMarkets()          external view returns (uint256) { return allTokens.length; }
+    function getMarkets(uint256 off, uint256 lim) external view returns (address[] memory ts, MarketAddresses[] memory ms) {
+        uint256 end = off + lim; if (end > allTokens.length) end = allTokens.length;
+        uint256 n = end - off; ts = new address[](n); ms = new MarketAddresses[](n);
+        for (uint256 i = 0; i < n; i++) { ts[i] = allTokens[off + i]; ms[i] = markets[ts[i]]; }
+    }
+    function setBotOperator(address n)    external onlyBotOrPlatform { require(n != address(0), "F:0"); botOperator = n;       emit BotOperatorUpdated(n); }
+    function setPlatformFeeWallet(address n) external onlyBotOrPlatform { require(n != address(0), "F:0"); platformFeeWallet = n; emit PlatformFeeWalletUpdated(n); }
+    function setPlatform(address n)       external onlyBot           { require(n != address(0), "F:0"); platform = n;          emit PlatformUpdated(n); }
 
-    function _lockDaysToSeconds(uint256 days_) internal pure returns (uint256) {
-        if (days_ == 7)   return 7   days;
-        if (days_ == 30)  return 30  days;
-        if (days_ == 90)  return 90  days;
-        if (days_ == 180) return 180 days;
-        revert("FlapFactory: invalid lock days (use 7, 30, 90, or 180)");
+    function _lock(uint256 d) internal pure returns (uint256) {
+        if (d == 7)   return 7   days;
+        if (d == 30)  return 30  days;
+        if (d == 90)  return 90  days;
+        if (d == 180) return 180 days;
+        revert("F:ld");
     }
 }
