@@ -2295,7 +2295,7 @@ const FOOTER_PLATFORM = [
 ];
 
 const FOOTER_RESOURCES = [
-  { label: "Smart Contracts", href: "https://bscscan.com/address/0xb86D9ae5321A2006788Ea5844C30064C57bE34CE", external: true },
+  { label: "Smart Contracts", href: "https://github.com/flapfutures/Flap-Futures-Web-App", external: true },
   { label: "API Reference",   href: "/whitepaper#architecture" },
   { label: "Bug Bounty",      href: "https://github.com/flapfutures/Flap-Futures-Web-App/issues", external: true },
   { label: "GitHub",          href: "https://github.com/flapfutures/Flap-Futures-Web-App", external: true },
