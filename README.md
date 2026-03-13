@@ -30,7 +30,7 @@
 | **Collateral** | USDT (BEP-20) |
 | **Leverage** | Dynamic — scales with vault size |
 | **Market creation** | Permissionless via FlapFactory |
-| **Fee split** | 80% creator / 20% platform |
+| **Flexibel Fee** | Creator Fee |
 | **Settlement** | Fully on-chain, no admin required |
 | **Price feed** | DexScreener (public on-chain data) |
 
