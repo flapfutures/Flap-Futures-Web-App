@@ -38,7 +38,7 @@ contract FlapVaultImpl {
     uint256 public constant LOCK_90D  = 90  days;
     uint256 public constant LOCK_180D = 180 days;
     uint256 public constant GRACE_PERIOD = 3 days;
-    uint256 public constant MIN_VAULT    = 100e18;
+    uint256 public constant MIN_VAULT    = 1e18; // 1 USDT floor only — creator config enforced on UI
 
     event VaultDeposited(address indexed opener, uint256 amount, uint256 unlocksAt);
     event InsuranceDeposited(address indexed opener, uint256 amount, uint256 unlocksAt);
@@ -94,7 +94,7 @@ contract FlapVaultImpl {
     function initDeposit(uint256 va, uint256 ia) external notClosed {
         require(msg.sender == factory, "V:if");
         require(vaultBalance == 0 && insuranceBalance == 0, "V:ii");
-        require(va >= MIN_VAULT && ia > 0, "V:im");
+        require(va > 0 && ia > 0, "V:im");
         _stf(factory, address(this), va + ia);
         vaultBalance = va; insuranceBalance = ia;
         vaultLockedUntil     = block.timestamp + lockDuration;
@@ -104,7 +104,7 @@ contract FlapVaultImpl {
     }
 
     function depositVault(uint256 a) external onlyOpener notClosed {
-        require(a > 0 && vaultBalance + a >= MIN_VAULT, "V:dv");
+        require(a > 0, "V:dv");
         _stf(opener, address(this), a);
         vaultBalance += a;
         if (block.timestamp >= vaultLockedUntil) vaultLockedUntil = block.timestamp + lockDuration;
