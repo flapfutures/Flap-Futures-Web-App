@@ -16,10 +16,10 @@ export const CONTRACTS_DEPLOYED = true;
 export const FLAP_PLATFORM_ADDRESS  = "0xFcB317630C77bB730C52A81e6ACbD6456DB69930"; // FlapPlatform.sol
 export const FLAP_ORACLE_ADDRESS    = "0x04e6D0C5c6b4BB583345c2980b8122f36BdA8144"; // FlapOracle.sol
 export const FLAP_FUNDING_ADDRESS   = "0x8eaeafdad4710585d5ad2446de3d4106023f19cf"; // FlapFunding.sol
-export const FLAP_FACTORY_ADDRESS   = "0x1dc8F38d5FC5D51F5cff93a0658655F05651E990"; // FlapFactory.sol
+export const FLAP_FACTORY_ADDRESS   = "0xE6eb9A2b91da0F24261cD1FDf50a9620F19ed93B"; // FlapFactory.sol
 // Implementation contracts (EIP-1167 clone targets — do not interact directly)
-export const FLAP_VAULT_IMPL        = "0x8c99C89D6557ef8ed7F112f20dB7B27f811656ae"; // FlapVaultImpl
-export const FLAP_PERPS_IMPL        = "0x1Ecb2DbC9b5Ef60CF83d7556337266CECEFC8EE3"; // FlapPerpsImpl
+export const FLAP_VAULT_IMPL        = "0xE15a6439fb8a4FA0B0AD5d7bf8c701Cb8d17D7eF"; // FlapVaultImpl
+export const FLAP_PERPS_IMPL        = "0x455Fabe50D28e62479b64bFD86bd3f2E5CaEc058"; // FlapPerpsImpl
 
 // PancakeSwap v2 pair for FLAP/USDT — used for DexScreener OHLCV chart
 export const FLAP_PANCAKE_POOL = "";
@@ -62,9 +62,9 @@ export const FFX_CONTRACTS = {
   PLATFORM:   "0xFcB317630C77bB730C52A81e6ACbD6456DB69930", // FlapPlatform.sol
   ORACLE:     "0x04e6D0C5c6b4BB583345c2980b8122f36BdA8144", // FlapOracle.sol
   FUNDING:    "0x8eaeafdad4710585d5ad2446de3d4106023f19cf", // FlapFunding.sol
-  FACTORY:    "0x1dc8F38d5FC5D51F5cff93a0658655F05651E990", // FlapFactory.sol
-  VAULT_IMPL: "0x8c99C89D6557ef8ed7F112f20dB7B27f811656ae", // FlapVaultImpl (clone target)
-  PERPS_IMPL: "0x1Ecb2DbC9b5Ef60CF83d7556337266CECEFC8EE3", // FlapPerpsImpl (clone target)
+  FACTORY:    "0xE6eb9A2b91da0F24261cD1FDf50a9620F19ed93B", // FlapFactory.sol
+  VAULT_IMPL: "0xE15a6439fb8a4FA0B0AD5d7bf8c701Cb8d17D7eF", // FlapVaultImpl (clone target)
+  PERPS_IMPL: "0x455Fabe50D28e62479b64bFD86bd3f2E5CaEc058", // FlapPerpsImpl (clone target)
   // Per-market vault/perps addresses come from DB (set by FlapFactory on createMarket)
 } as const;
 
