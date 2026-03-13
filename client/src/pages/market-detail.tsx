@@ -43,10 +43,14 @@ async function ensureBSC(): Promise<ethers.BrowserProvider> {
   const provider = new ethers.BrowserProvider(w.ethereum);
   const network = await provider.getNetwork();
   if (Number(network.chainId) !== BSC_CHAIN_ID) {
-    await w.ethereum.request({
+    const switchPromise = w.ethereum.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: "0x38" }],
     });
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Chain switch timed out — please switch to BSC manually in your wallet")), 20000)
+    );
+    await Promise.race([switchPromise, timeout]);
     return new ethers.BrowserProvider(w.ethereum);
   }
   return provider;
@@ -104,11 +108,14 @@ function DepositWithdrawPanel({
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
     setBusy(true);
-    if (mode === "deposit") await onDeposit(amt);
-    else if (mode === "withdraw") await onWithdraw(amt);
-    setAmount("");
-    setMode(null);
-    setBusy(false);
+    try {
+      if (mode === "deposit") await onDeposit(amt);
+      else if (mode === "withdraw") await onWithdraw(amt);
+      setAmount("");
+      setMode(null);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -196,6 +203,11 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
   async function handleVaultDeposit(amount: number) {
     const vaultAddr = market?.contractVault;
     if (!vaultAddr) { toast({ title: "Contracts not deployed yet", variant: "destructive" }); return; }
+    const minVault = market?.minVault ?? 500;
+    if ((market?.vaultBalance ?? 0) + amount < minVault) {
+      toast({ title: `Minimum vault deposit is $${minVault}`, description: `You need at least $${minVault} total in the vault`, variant: "destructive" });
+      return;
+    }
     try {
       const signer = await getVaultSigner();
       const addr   = await signer.getAddress();
