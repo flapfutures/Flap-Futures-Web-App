@@ -317,6 +317,15 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
     setBotToggling(false);
   };
 
+  const regenBotWallet = async (id: string) => {
+    setActionId(id);
+    try {
+      const r = await fetch(`/api/admin/markets/${id}/regen-bot-wallet`, { method: "POST" });
+      if (r.ok) { await load(); }
+    } catch {}
+    setActionId(null);
+  };
+
   useEffect(() => { load(); }, [load]);
 
   const pause = async (id: string) => {
@@ -570,6 +579,19 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
                         <td className="px-3 py-3 text-center"><StatusBadge status={m.status} /></td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* Regen bot wallet — for markets missing one (pre-existing) */}
+                            {!m.marketBotWallet && (
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-7 px-2 text-xs text-blue-400 hover:bg-blue-500/10"
+                                onClick={() => regenBotWallet(m.id)}
+                                disabled={busy}
+                                title="Generate a dedicated bot wallet for this market"
+                              >
+                                {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+                                <span className="ml-1 hidden sm:inline">Gen Bot</span>
+                              </Button>
+                            )}
                             {m.gasBnbRequired && m.gasBnbRequired > 0 && !m.gasBnbPaid && (
                               <Button
                                 variant="ghost" size="sm"
