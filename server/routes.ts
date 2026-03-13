@@ -1100,9 +1100,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Bot price-refresh start / stop / status ──────────────────────────────────
-  app.get("/api/admin/bot/status", (req, res) => {
+  app.get("/api/admin/bot/status", async (req, res) => {
     if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
-    const { isBotPaused } = require("./price-bot");
+    const { isBotPaused } = await import("./price-bot");
     return res.json({ paused: isBotPaused() });
   });
 
