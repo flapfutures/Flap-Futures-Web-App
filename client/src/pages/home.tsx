@@ -2324,10 +2324,10 @@ function Footer() {
               Decentralized perpetual trading infrastructure for every token on <a href="https://flap.sh/bnb/board" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">flap.sh</a>.
             </p>
             <div className="flex items-center gap-3 flex-wrap">
-              <a href="#" aria-label="Telegram" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-telegram">
+              <a href="https://t.me/flapfutures" target="_blank" rel="noopener noreferrer" aria-label="Telegram" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-telegram">
                 <SiTelegram className="w-4 h-4" />
               </a>
-              <a href="#" aria-label="X (Twitter)" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-x">
+              <a href="https://x.com/flapfutures" target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-x">
                 <SiX className="w-4 h-4" />
               </a>
               <a href="#" aria-label="Discord" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-discord">
