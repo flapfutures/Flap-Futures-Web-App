@@ -14,7 +14,7 @@ library FlapParams {
     uint256 internal constant MCAP_5M     = 5_000_000e18;
     uint256 internal constant MCAP_7M     = 7_000_000e18;
     uint256 internal constant MIN_POSITION    = 5e18;
-    uint256 internal constant MIN_VAULT       = 500e18;
+    uint256 internal constant MIN_VAULT       = 1e18; // floor only — real minimum is creator config
     uint256 internal constant VAULT_WARN_BPS  = 3000;
     uint256 internal constant VAULT_FREEZE_BPS = 1500;
 
