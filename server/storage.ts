@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, desc, and, inArray, not } from "drizzle-orm";
+import { eq, desc, and, inArray, not, isNotNull } from "drizzle-orm";
 import pg from "pg";
 import {
   users, markets, tradeHistory, adminLogs,
@@ -14,7 +14,8 @@ export const db = drizzle(pool);
 // ── Status is always derived from vault fields ────────────────────────────────
 // PAUSED is the only status a creator can manually set.
 // Everything else is computed from vault state.
-export function computeMarketStatus(m: Market): string {
+type MarketStatus = "PENDING" | "LIVE" | "VAULT_UNLOCK" | "FROZEN" | "PAUSED" | "REJECTED";
+export function computeMarketStatus(m: Market): MarketStatus {
   if (m.status === "PAUSED") return "PAUSED";                              // creator override
   if (!m.vaultDepositedAt)   return "PENDING";                            // vault never deposited
   if ((m.vaultBalance ?? 0) <= 0) return "FROZEN";                       // vault withdrawn
@@ -82,11 +83,16 @@ export const storage = {
   },
 
   async getAllActiveMarkets(): Promise<Market[]> {
-    // For price-bot: markets that need price refreshes (LIVE + VAULT_UNLOCK)
+    // For price-bot: ONLY markets with deployed FFX contracts AND strictly LIVE status.
+    // contractVault IS NOT NULL ensures we never push to old/stale oracle entries.
     const rows = await db.select().from(markets)
-      .where(not(eq(markets.status, "PAUSED")))
+      .where(and(
+        eq(markets.status, "LIVE"),
+        isNotNull(markets.contractVault),
+        isNotNull(markets.contractPerps),
+      ))
       .orderBy(desc(markets.createdAt));
-    return rows.map(applyStatus).filter(m => m.status === "LIVE" || m.status === "VAULT_UNLOCK");
+    return rows.map(applyStatus).filter(m => m.status === "LIVE");
   },
 
   async getAllMarkets(): Promise<Market[]> {
