@@ -1155,6 +1155,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Visitor analytics — public tracking ──────────────────────────────────────
+  app.post("/api/analytics/track", async (req, res) => {
+    try {
+      const { fingerprint, page } = req.body;
+      if (!fingerprint || !page) return res.json({ ok: false });
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+              || req.socket.remoteAddress || "127.0.0.1";
+      const { trackPageView } = await import("./analytics");
+      await trackPageView(fingerprint, page, ip);
+      return res.json({ ok: true });
+    } catch { return res.json({ ok: false }); }
+  });
+
+  app.post("/api/analytics/heartbeat", async (req, res) => {
+    try {
+      const { fingerprint, page } = req.body;
+      if (!fingerprint) return res.json({ ok: false });
+      const { heartbeat } = await import("./analytics");
+      await heartbeat(fingerprint, page || "/");
+      return res.json({ ok: true });
+    } catch { return res.json({ ok: false }); }
+  });
+
+  // ── Visitor analytics — admin summary ────────────────────────────────────────
+  app.get("/api/admin/analytics", async (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const { getAnalytics } = await import("./analytics");
+      return res.json(await getAnalytics());
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Analytics failed" });
+    }
+  });
+
   // ── Bot price-refresh start / stop / status ──────────────────────────────────
   app.get("/api/admin/bot/status", async (req, res) => {
     if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
