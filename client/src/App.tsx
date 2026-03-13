@@ -8,6 +8,7 @@ import Home from "@/pages/home";
 import DashboardShell from "@/pages/dashboard-shell";
 import Dev88 from "@/pages/dev88";
 import Whitepaper from "@/pages/whitepaper";
+import { TermsOfService, PrivacyPolicy, RiskDisclosure, CookiePolicy } from "@/pages/legal";
 import NotFound from "@/pages/not-found";
 import { useAnalytics } from "@/hooks/useAnalytics";
 
@@ -32,6 +33,10 @@ function Router() {
       </Route>
       <Route path="/dev88" component={Dev88} />
       <Route path="/whitepaper" component={Whitepaper} />
+      <Route path="/terms" component={TermsOfService} />
+      <Route path="/privacy" component={PrivacyPolicy} />
+      <Route path="/risk" component={RiskDisclosure} />
+      <Route path="/cookies" component={CookiePolicy} />
       <Route component={NotFound} />
     </Switch>
   );
