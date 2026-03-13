@@ -2190,18 +2190,39 @@ function CTASection() {
   );
 }
 
+const FOOTER_PLATFORM = [
+  { label: "Trading Board",  href: "/dashboard" },
+  { label: "List Your Token", href: "/dashboard#apply" },
+  { label: "Dev Dashboard",  href: "/dev88" },
+  { label: "Whitepaper",     href: "/whitepaper" },
+];
+
+const FOOTER_RESOURCES = [
+  { label: "Smart Contracts", href: "https://bscscan.com/address/", external: true },
+  { label: "API Reference",   href: "#" },
+  { label: "Bug Bounty",      href: "#" },
+  { label: "GitHub",          href: "https://github.com/flapfutures/Flap-Futures-Web-App", external: true },
+];
+
+const FOOTER_LEGAL = [
+  { label: "Terms of Service", href: "#" },
+  { label: "Privacy Policy",   href: "#" },
+  { label: "Risk Disclosure",  href: "#" },
+  { label: "Cookie Policy",    href: "#" },
+];
+
 function Footer() {
   return (
     <footer className="border-t border-border/30 py-12 sm:py-16" data-testid="footer">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 sm:gap-10 mb-10 sm:mb-12">
           <div>
-            <a href="#" className="flex items-center gap-2 mb-4" data-testid="link-footer-logo">
+            <Link href="/" className="flex items-center gap-2 mb-4" data-testid="link-footer-logo">
               <img src={logoImg} alt="FLAP FUTURES" className="w-8 h-8" />
               <span className="font-heading font-bold text-lg text-white">
                 FLAP <span className="text-gradient">FUTURES</span>
               </span>
-            </a>
+            </Link>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4" data-testid="text-footer-desc">
               Decentralized perpetual trading infrastructure for every token on <a href="https://flap.sh/bnb/board" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">flap.sh</a>.
             </p>
@@ -2215,7 +2236,7 @@ function Footer() {
               <a href="#" aria-label="Discord" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-discord">
                 <SiDiscord className="w-4 h-4" />
               </a>
-              <a href="#" aria-label="GitHub" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-github">
+              <a href="https://github.com/flapfutures/Flap-Futures-Web-App" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="w-9 h-9 rounded-md bg-secondary flex items-center justify-center text-muted-foreground hover-elevate" data-testid="link-footer-github">
                 <SiGithub className="w-4 h-4" />
               </a>
             </div>
@@ -2224,11 +2245,11 @@ function Footer() {
           <div>
             <h4 className="font-heading font-semibold text-sm text-white mb-4">Platform</h4>
             <ul className="space-y-3">
-              {["Trading Board", "List Your Token", "Dev Dashboard", "Documentation"].map((link) => (
-                <li key={link}>
-                  <a href="#" className="text-sm text-muted-foreground transition-colors" data-testid={`link-footer-${link.toLowerCase().replace(/\s/g, "-")}`}>
-                    {link}
-                  </a>
+              {FOOTER_PLATFORM.map(({ label, href }) => (
+                <li key={label}>
+                  <Link href={href} className="text-sm text-muted-foreground hover:text-white transition-colors" data-testid={`link-footer-${label.toLowerCase().replace(/\s/g, "-")}`}>
+                    {label}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -2237,11 +2258,17 @@ function Footer() {
           <div>
             <h4 className="font-heading font-semibold text-sm text-white mb-4">Resources</h4>
             <ul className="space-y-3">
-              {["Whitepaper", "Smart Contracts", "API Reference", "Bug Bounty"].map((link) => (
-                <li key={link}>
-                  <a href="#" className="text-sm text-muted-foreground transition-colors" data-testid={`link-footer-${link.toLowerCase().replace(/\s/g, "-")}`}>
-                    {link}
-                  </a>
+              {FOOTER_RESOURCES.map(({ label, href, external }) => (
+                <li key={label}>
+                  {external ? (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-white transition-colors" data-testid={`link-footer-${label.toLowerCase().replace(/\s/g, "-")}`}>
+                      {label}
+                    </a>
+                  ) : (
+                    <a href={href} className="text-sm text-muted-foreground hover:text-white transition-colors" data-testid={`link-footer-${label.toLowerCase().replace(/\s/g, "-")}`}>
+                      {label}
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>
@@ -2250,10 +2277,10 @@ function Footer() {
           <div>
             <h4 className="font-heading font-semibold text-sm text-white mb-4">Legal</h4>
             <ul className="space-y-3">
-              {["Terms of Service", "Privacy Policy", "Risk Disclosure", "Cookie Policy"].map((link) => (
-                <li key={link}>
-                  <a href="#" className="text-sm text-muted-foreground transition-colors" data-testid={`link-footer-${link.toLowerCase().replace(/\s/g, "-")}`}>
-                    {link}
+              {FOOTER_LEGAL.map(({ label, href }) => (
+                <li key={label}>
+                  <a href={href} className="text-sm text-muted-foreground hover:text-white transition-colors" data-testid={`link-footer-${label.toLowerCase().replace(/\s/g, "-")}`}>
+                    {label}
                   </a>
                 </li>
               ))}
@@ -2263,7 +2290,7 @@ function Footer() {
 
         <div className="border-t border-border/30 pt-6 sm:pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-muted-foreground" data-testid="text-copyright">
-            2026 FLAP FUTURES. All rights reserved.
+            © 2026 FLAP FUTURES. All rights reserved.
           </p>
           <p className="text-xs text-muted-foreground text-center sm:text-right" data-testid="text-disclaimer">
             Trading involves significant risk. This is not financial advice.
