@@ -74,6 +74,7 @@ interface Market {
   ownerWallet: string; lockDuration: number | null;
   refreshInterval: number | null; gasBnbRequired: number | null; gasBnbPaid: boolean | null;
   minVault: number | null;
+  marketBotWallet: string | null;
 }
 
 interface Trade {
@@ -94,25 +95,61 @@ function shortAddr(addr: string) {
 }
 
 function DepositWithdrawPanel({
-  label, balance, onDeposit, onWithdraw, locked, unlockDate, minAmount,
+  label, balance, onDeposit, onWithdraw, locked, unlockDate, minAmount, vaultAddr,
 }: {
   label: string; balance: number; locked?: boolean; unlockDate?: string | null;
   onDeposit: (amt: number) => Promise<void>; onWithdraw: (amt: number) => Promise<void>;
-  minAmount?: number;
+  minAmount?: number; vaultAddr?: string | null;
 }) {
   const [mode, setMode] = useState<"deposit" | "withdraw" | null>(null);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [walletUsdt, setWalletUsdt] = useState<number | null>(null);
+  const [loadingBal, setLoadingBal] = useState(false);
+
+  async function fetchWalletUsdt() {
+    if (!vaultAddr) return;
+    setLoadingBal(true);
+    try {
+      const w = window as any;
+      if (!w.ethereum) return;
+      // Get connected accounts without prompting MetaMask (eth_accounts is silent)
+      const accounts: string[] = await w.ethereum.request({ method: "eth_accounts" });
+      if (!accounts || accounts.length === 0) { setWalletUsdt(null); return; }
+      const addr = accounts[0];
+      // Read balance via a static BSC provider — no wallet interaction needed
+      const bscProvider = new ethers.JsonRpcProvider("https://bsc-dataseed1.binance.org/");
+      const usdt = new ethers.Contract(USDT_ADDRESS, USDT_ABI, bscProvider);
+      const bal = await usdt.balanceOf(addr);
+      setWalletUsdt(parseFloat(ethers.formatUnits(bal, 18)));
+    } catch {
+      setWalletUsdt(null);
+    } finally {
+      setLoadingBal(false);
+    }
+  }
+
+  function openMode(m: "deposit" | "withdraw") {
+    setMode(prev => prev === m ? null : m);
+    setAmount("");
+    if (m === "deposit") fetchWalletUsdt();
+  }
+
+  const amt = parseFloat(amount);
+  const insufficientUsdt = mode === "deposit" && walletUsdt !== null && amt > 0 && amt > walletUsdt;
+  const belowMin = mode === "deposit" && minAmount !== undefined && amt > 0 && amt < minAmount;
 
   async function handleAction() {
-    const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
+    if (insufficientUsdt) return;
+    if (belowMin) return;
     setBusy(true);
     try {
       if (mode === "deposit") await onDeposit(amt);
       else if (mode === "withdraw") await onWithdraw(amt);
       setAmount("");
       setMode(null);
+      setWalletUsdt(null);
     } finally {
       setBusy(false);
     }
@@ -137,11 +174,11 @@ function DepositWithdrawPanel({
       )}
 
       <div className="flex gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setMode(mode === "deposit" ? null : "deposit")}
+        <Button size="sm" variant="ghost" onClick={() => openMode("deposit")}
           className="flex-1 text-green-400 hover:bg-green-500/10 border border-green-500/20 gap-1">
           <Plus className="w-3 h-3" /> Deposit
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setMode(mode === "withdraw" ? null : "withdraw")}
+        <Button size="sm" variant="ghost" onClick={() => openMode("withdraw")}
           disabled={locked}
           className="flex-1 text-red-400 hover:bg-red-500/10 border border-red-500/20 gap-1 disabled:opacity-40">
           <Minus className="w-3 h-3" /> Withdraw
@@ -150,13 +187,37 @@ function DepositWithdrawPanel({
 
       {mode && (
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-2">
+          {mode === "deposit" && (
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="text-white/40">Your USDT wallet balance</span>
+              {loadingBal ? (
+                <span className="text-white/30 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> checking…</span>
+              ) : walletUsdt !== null ? (
+                <span className={walletUsdt < (minAmount ?? 0) ? "text-red-400 font-semibold" : "text-white/70 font-semibold"}>
+                  ${walletUsdt.toFixed(2)} USDT
+                </span>
+              ) : (
+                <span className="text-white/20">—</span>
+              )}
+            </div>
+          )}
           <Input type="number" placeholder="Amount in USDT" value={amount}
             onChange={e => setAmount(e.target.value)}
             className="bg-white/5 border-white/10 text-white placeholder-white/30" />
-          <Button onClick={handleAction} disabled={busy || !amount}
-            className={`w-full gap-2 ${mode === "deposit" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"} text-white`}>
+          {insufficientUsdt && (
+            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              Insufficient USDT — you have ${walletUsdt!.toFixed(2)} but entered ${amt.toFixed(2)}. Top up your wallet before depositing.
+            </div>
+          )}
+          {belowMin && !insufficientUsdt && (
+            <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+              Minimum deposit is ${minAmount!.toFixed(0)} USDT.
+            </div>
+          )}
+          <Button onClick={handleAction} disabled={busy || !amount || insufficientUsdt || belowMin || (mode === "deposit" && loadingBal)}
+            className={`w-full gap-2 ${mode === "deposit" ? "bg-green-600 hover:bg-green-700 disabled:bg-green-900/40" : "bg-red-600 hover:bg-red-700"} text-white`}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Confirm {mode === "deposit" ? "Deposit" : "Withdrawal"}
+            {mode === "deposit" && loadingBal ? "Checking balance…" : `Confirm ${mode === "deposit" ? "Deposit" : "Withdrawal"}`}
           </Button>
         </motion.div>
       )}
@@ -215,6 +276,18 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
       const vault  = new ethers.Contract(vaultAddr, VAULT_ABI, signer);
       const amt18  = ethers.parseUnits(amount.toFixed(6), 18);
 
+      // Hard pre-flight: check actual on-chain balance before spending any gas
+      const usdtBal = await usdt.balanceOf(addr);
+      if (usdtBal < amt18) {
+        const have = parseFloat(ethers.formatUnits(usdtBal, 18)).toFixed(2);
+        toast({
+          title: "Insufficient USDT",
+          description: `You only have $${have} USDT on BSC — please top up before depositing.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       const allowance = await usdt.allowance(addr, vaultAddr);
       if (allowance < amt18) {
         toast({ title: "Approving USDT…", description: "Confirm in your wallet" });
@@ -259,6 +332,18 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
       const usdt   = new ethers.Contract(USDT_ADDRESS, USDT_ABI, signer);
       const vault  = new ethers.Contract(vaultAddr, VAULT_ABI, signer);
       const amt18  = ethers.parseUnits(amount.toFixed(6), 18);
+
+      // Hard pre-flight: check actual on-chain balance before spending any gas
+      const usdtBal = await usdt.balanceOf(addr);
+      if (usdtBal < amt18) {
+        const have = parseFloat(ethers.formatUnits(usdtBal, 18)).toFixed(2);
+        toast({
+          title: "Insufficient USDT",
+          description: `You only have $${have} USDT on BSC — please top up before depositing.`,
+          variant: "destructive",
+        });
+        return;
+      }
 
       const allowance = await usdt.allowance(addr, vaultAddr);
       if (allowance < amt18) {
@@ -678,7 +763,8 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
                   balance={market.vaultBalance || 0}
                   locked={vaultLocked}
                   unlockDate={market.vaultUnlocksAt}
-                  minAmount={market.minVault ?? 100}
+                  minAmount={market.minVault ?? 50}
+                  vaultAddr={market.contractVault}
                   onDeposit={handleVaultDeposit}
                   onWithdraw={handleVaultWithdraw}
                 />
@@ -705,6 +791,7 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
                   locked={vaultLocked}
                   unlockDate={market.vaultUnlocksAt}
                   minAmount={minIns}
+                  vaultAddr={market.contractVault}
                   onDeposit={handleInsuranceDeposit}
                   onWithdraw={handleInsuranceWithdraw}
                 />
@@ -803,25 +890,31 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
                   </span>
                 </div>
 
-                {/* Wallet address */}
+                {/* Wallet address — per-market dedicated bot wallet */}
                 <div>
-                  <div className="text-white/30 text-xs mb-1.5 uppercase tracking-wide">Send to — Bot Operator Wallet (BSC only)</div>
-                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg" style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(213,247,4,0.15)" }}>
-                    <a
-                      href={`https://bscscan.com/address/${BOT_GAS_WALLET}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="font-mono text-xs flex-1 text-[#d5f704] hover:text-white transition-colors flex items-center gap-1.5"
-                    >
-                      {BOT_GAS_WALLET}
-                      <ExternalLink className="w-3 h-3 flex-shrink-0 opacity-50" />
-                    </a>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(BOT_GAS_WALLET); toast({ title: "Address copied" }); }}
-                      className="p-1.5 rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors flex-shrink-0"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <div className="text-white/30 text-xs mb-1.5 uppercase tracking-wide">Send to — Your Market Bot Wallet (BSC only)</div>
+                  {market.marketBotWallet ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg" style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(213,247,4,0.15)" }}>
+                      <a
+                        href={`https://bscscan.com/address/${market.marketBotWallet}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="font-mono text-xs flex-1 text-[#d5f704] hover:text-white transition-colors flex items-center gap-1.5"
+                      >
+                        {market.marketBotWallet}
+                        <ExternalLink className="w-3 h-3 flex-shrink-0 opacity-50" />
+                      </a>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(market.marketBotWallet!); toast({ title: "Address copied" }); }}
+                        className="p-1.5 rounded hover:bg-white/10 text-white/40 hover:text-white transition-colors flex-shrink-0"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2.5 rounded-lg text-white/30 text-xs" style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      Bot wallet is being prepared — refresh this page in a moment.
+                    </div>
+                  )}
                 </div>
 
                 <div className="text-white/25 text-[10px]">
@@ -834,13 +927,15 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
               <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/5 border border-green-500/15 text-green-400 text-sm">
                 <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                 <span>{market.gasBnbRequired} BNB received — bot is operating this market.</span>
-                <a
-                  href={`https://bscscan.com/address/${BOT_GAS_WALLET}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="ml-auto text-green-400/60 hover:text-green-400 transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
+                {market.marketBotWallet && (
+                  <a
+                    href={`https://bscscan.com/address/${market.marketBotWallet}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="ml-auto text-green-400/60 hover:text-green-400 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
               </div>
             )}
           </Card>
