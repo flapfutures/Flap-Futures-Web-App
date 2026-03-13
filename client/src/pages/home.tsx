@@ -2288,16 +2288,16 @@ function CTASection() {
 }
 
 const FOOTER_PLATFORM = [
-  { label: "Trading Board",  href: "/dashboard" },
+  { label: "Trading Board",   href: "/dashboard#perps" },
   { label: "List Your Token", href: "/dashboard#apply" },
-  { label: "Dev Dashboard",  href: "/dev88" },
-  { label: "Whitepaper",     href: "/whitepaper" },
+  { label: "Dev Dashboard",   href: "/dev88" },
+  { label: "Whitepaper",      href: "/whitepaper" },
 ];
 
 const FOOTER_RESOURCES = [
-  { label: "Smart Contracts", href: "#" },
-  { label: "API Reference",   href: "#" },
-  { label: "Bug Bounty",      href: "#" },
+  { label: "Smart Contracts", href: "https://bscscan.com/address/0xb86D9ae5321A2006788Ea5844C30064C57bE34CE", external: true },
+  { label: "API Reference",   href: "/whitepaper#architecture" },
+  { label: "Bug Bounty",      href: "https://github.com/flapfutures/Flap-Futures-Web-App/issues", external: true },
   { label: "GitHub",          href: "https://github.com/flapfutures/Flap-Futures-Web-App", external: true },
 ];
 
