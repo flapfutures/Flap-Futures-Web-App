@@ -169,6 +169,103 @@ function HeroSection() {
   );
 }
 
+function BaitSection() {
+  const hooks = [
+    { num: "80%",  label: "of every trade fee goes directly to you — the market creator" },
+    { num: "$50",  label: "minimum to launch your own on-chain perpetuals market" },
+    { num: "10×",  label: "leverage available on your token from day one" },
+    { num: "0",    label: "monthly fees, no middlemen, no permission required" },
+  ];
+
+  return (
+    <section className="relative py-16 sm:py-24 overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#7a33fa]/8 via-transparent to-[#d5f704]/4 pointer-events-none" />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        {/* Hook headline */}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-14"
+        >
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#d5f704]/10 border border-[#d5f704]/25 mb-5">
+            <span className="w-2 h-2 rounded-full bg-[#d5f704] animate-pulse" />
+            <span className="text-[#d5f704] text-xs font-mono font-semibold uppercase tracking-widest">For Token Creators</span>
+          </div>
+          <h2 className="font-heading font-bold text-3xl sm:text-4xl lg:text-5xl tracking-tight leading-tight mb-5">
+            Your Token Deserves<br />
+            <span className="text-gradient">Its Own Futures Market</span>
+          </h2>
+          <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+            Most token projects leave millions in trading fees on the table every month.{" "}
+            <span className="text-white/80 font-semibold">FFX puts that revenue back in your hands — starting from $50.</span>
+          </p>
+        </motion.div>
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+          {hooks.map((h, i) => (
+            <motion.div
+              key={h.num}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: i * 0.08 }}
+            >
+              <Card className="p-5 sm:p-6 text-center border-white/10 bg-white/[0.03] hover:bg-white/[0.06] transition-colors h-full">
+                <div className="font-heading font-black text-3xl sm:text-4xl text-gradient mb-2">{h.num}</div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{h.label}</p>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Curiosity strip */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="relative rounded-2xl overflow-hidden border border-[#7a33fa]/40 bg-gradient-to-r from-[#7a33fa]/10 via-[#7a33fa]/5 to-[#d5f704]/5 p-7 sm:p-10 flex flex-col sm:flex-row items-center justify-between gap-6"
+        >
+          {/* Decorative glow blob */}
+          <div className="absolute -left-20 top-1/2 -translate-y-1/2 w-52 h-52 rounded-full bg-[#7a33fa]/20 blur-3xl pointer-events-none" />
+          <div className="absolute -right-10 top-0 w-40 h-40 rounded-full bg-[#d5f704]/8 blur-2xl pointer-events-none" />
+
+          <div className="relative">
+            <p className="text-[#d5f704] text-xs font-mono font-semibold uppercase tracking-widest mb-2">Did you know?</p>
+            <h3 className="font-heading font-bold text-xl sm:text-2xl text-white mb-2">
+              Your token already has traders — just no market.
+            </h3>
+            <p className="text-muted-foreground text-sm sm:text-base max-w-lg leading-relaxed">
+              Every day your holders speculate on price with nowhere to go leveraged. Launch a vault,
+              set your parameters once, and collect <span className="text-white/80 font-medium">80% of every trade fee</span> — automatically,
+              on-chain, forever.
+            </p>
+          </div>
+
+          <div className="relative shrink-0">
+            <ShimmerBorder rounded="rounded-xl">
+              <Button
+                size="lg"
+                className="bg-[#7a33fa] hover:bg-[#7a33fa]/90 text-white font-semibold px-8 gap-2 whitespace-nowrap"
+                onClick={() => window.location.href = "/dashboard#apply"}
+              >
+                Launch My Market
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </ShimmerBorder>
+          </div>
+        </motion.div>
+
+      </div>
+    </section>
+  );
+}
+
 function AboutSection() {
   const pillars = [
     {
@@ -2198,7 +2295,7 @@ const FOOTER_PLATFORM = [
 ];
 
 const FOOTER_RESOURCES = [
-  { label: "Smart Contracts", href: "https://bscscan.com/address/", external: true },
+  { label: "Smart Contracts", href: "#" },
   { label: "API Reference",   href: "#" },
   { label: "Bug Bounty",      href: "#" },
   { label: "GitHub",          href: "https://github.com/flapfutures/Flap-Futures-Web-App", external: true },
@@ -2311,6 +2408,7 @@ export default function Home() {
       <Header />
       <MobileSidebar />
       <HeroSection />
+      <BaitSection />
       <AboutSection />
       <WhoIsItForSection />
       <UseCaseSection />
