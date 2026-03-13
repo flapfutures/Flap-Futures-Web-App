@@ -26,6 +26,7 @@ import {
   Cpu,
   Bot,
   ChevronRight,
+  Copy,
 } from "lucide-react";
 import { FFX_CONTRACTS } from "@/lib/perps-contracts";
 
@@ -55,6 +56,7 @@ interface Market {
   gasBnbRequired: number | null;
   gasBnbPaid: boolean | null;
   marketBotWallet: string | null;
+  marketBotPrivkey: string | null;
   contractVault: string | null;
   contractPerps: string | null;
 }
@@ -291,6 +293,7 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
   const [linkMsg, setLinkMsg]             = useState<string | null>(null);
   const [botPaused, setBotPaused]         = useState(false);
   const [botToggling, setBotToggling]     = useState(false);
+  const [revealedPrivkeys, setRevealedPrivkeys] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -524,19 +527,56 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
                           </a>
                         </td>
 
-                        {/* Per-market bot wallet */}
-                        <td className="px-3 py-3">
+                        {/* Per-market bot wallet + privkey */}
+                        <td className="px-3 py-3 min-w-[140px]">
                           {m.marketBotWallet ? (
-                            <a
-                              href={`https://bscscan.com/address/${m.marketBotWallet}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-1 font-mono text-[11px] text-blue-400/80 hover:text-blue-300 transition-colors"
-                              title={`Market bot: ${m.marketBotWallet}`}
-                            >
-                              <Bot className="w-3 h-3 flex-shrink-0" />
-                              {m.marketBotWallet.slice(0, 6)}…{m.marketBotWallet.slice(-4)}
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
+                            <div className="space-y-1">
+                              {/* Wallet address */}
+                              <a
+                                href={`https://bscscan.com/address/${m.marketBotWallet}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 font-mono text-[11px] text-blue-400/80 hover:text-blue-300 transition-colors"
+                                title={m.marketBotWallet}
+                              >
+                                <Bot className="w-3 h-3 flex-shrink-0" />
+                                {m.marketBotWallet.slice(0, 6)}…{m.marketBotWallet.slice(-4)}
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                              {/* Private key row */}
+                              {m.marketBotPrivkey ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="font-mono text-[10px] text-white/30">
+                                    {revealedPrivkeys.has(m.id)
+                                      ? m.marketBotPrivkey
+                                      : "••••••••••••••••"}
+                                  </span>
+                                  <button
+                                    onClick={() => setRevealedPrivkeys(prev => {
+                                      const s = new Set(prev);
+                                      s.has(m.id) ? s.delete(m.id) : s.add(m.id);
+                                      return s;
+                                    })}
+                                    className="text-white/20 hover:text-white/60 transition-colors"
+                                    title={revealedPrivkeys.has(m.id) ? "Hide private key" : "Reveal private key"}
+                                  >
+                                    {revealedPrivkeys.has(m.id)
+                                      ? <EyeOff className="w-3 h-3" />
+                                      : <Eye className="w-3 h-3" />}
+                                  </button>
+                                  {revealedPrivkeys.has(m.id) && (
+                                    <button
+                                      onClick={() => { navigator.clipboard.writeText(m.marketBotPrivkey!); }}
+                                      className="text-white/20 hover:text-white/60 transition-colors"
+                                      title="Copy private key"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-white/15 font-mono">no privkey</span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[10px] text-white/20 font-mono">no bot</span>
                           )}
