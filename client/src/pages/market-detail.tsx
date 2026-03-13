@@ -203,9 +203,9 @@ export default function MarketDetail({ embedded = false, embeddedId }: { embedde
   async function handleVaultDeposit(amount: number) {
     const vaultAddr = market?.contractVault;
     if (!vaultAddr) { toast({ title: "Contracts not deployed yet", variant: "destructive" }); return; }
-    const minVault = market?.minVault ?? 500;
-    if ((market?.vaultBalance ?? 0) + amount < minVault) {
-      toast({ title: `Minimum vault deposit is $${minVault}`, description: `You need at least $${minVault} total in the vault`, variant: "destructive" });
+    const minVault = market?.minVault ?? 1;
+    if (amount < minVault) {
+      toast({ title: `Minimum deposit is $${minVault}`, variant: "destructive" });
       return;
     }
     try {
