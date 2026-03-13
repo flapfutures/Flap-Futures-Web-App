@@ -5,6 +5,19 @@ import { ethers } from 'ethers';
 const require = createRequire(import.meta.url);
 const solc = require('solc');
 
+// ── Config (set in .env before running) ─────────────────────────────────────
+const BOT_OPERATOR     = process.env.BOT_OPERATOR_ADDRESS;     // wallet that posts prices
+const PLATFORM_ADDRESS = process.env.PLATFORM_ADDRESS;         // FlapPlatform contract
+const PLATFORM_FEE_WALLET = process.env.PLATFORM_FEE_WALLET;  // receives platform fees
+const USDT_ADDRESS     = "0x55d398326f99059fF775485246999027B3197955"; // BSC USDT (fixed)
+const ORACLE_ADDRESS   = process.env.FFX_ORACLE;               // FlapOracle
+const FUNDING_ADDRESS  = process.env.FFX_FUNDING;              // FlapFunding
+
+if (!BOT_OPERATOR || !PLATFORM_ADDRESS || !PLATFORM_FEE_WALLET || !ORACLE_ADDRESS || !FUNDING_ADDRESS) {
+  console.error("Missing required env vars. See .env.example");
+  process.exit(1);
+}
+
 function load(name) { return readFileSync(`contracts/local/${name}`, 'utf8'); }
 
 const input = {
@@ -32,13 +45,13 @@ function getContract(file, name) {
   return { abi: c.abi, bin: '0x' + c.evm.bytecode.object };
 }
 
-const vaultImpl  = getContract('FlapVaultImpl.sol', 'FlapVaultImpl');
-const perpsImpl  = getContract('FlapPerpsImpl.sol', 'FlapPerpsImpl');
-const factory    = getContract('FlapFactory.sol',   'FlapFactory');
+const vaultImpl = getContract('FlapVaultImpl.sol', 'FlapVaultImpl');
+const perpsImpl = getContract('FlapPerpsImpl.sol', 'FlapPerpsImpl');
+const factory   = getContract('FlapFactory.sol',   'FlapFactory');
 
 console.log(`FlapVaultImpl: ${(vaultImpl.bin.length-2)/2} bytes`);
 console.log(`FlapPerpsImpl: ${(perpsImpl.bin.length-2)/2} bytes`);
-console.log(`FlapFactory:   ${(factory.bin.length-2)/2}  bytes`);
+console.log(`FlapFactory:   ${(factory.bin.length-2)/2} bytes`);
 
 const provider = new ethers.JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 const wallet   = new ethers.Wallet(process.env.BOT_PRIVATE_KEY, provider);
@@ -47,7 +60,7 @@ const gasPrice = ethers.parseUnits('0.05', 'gwei');
 
 console.log(`\nWallet: ${wallet.address}`);
 console.log(`BNB balance: ${ethers.formatEther(bal)}`);
-if (bal === 0n) { console.error('No BNB'); process.exit(1); }
+if (bal === 0n) { console.error('No BNB — fund your bot wallet first'); process.exit(1); }
 
 async function deploy(label, abi, bin, args = []) {
   const cf = new ethers.ContractFactory(abi, bin, wallet);
@@ -63,22 +76,13 @@ async function deploy(label, abi, bin, args = []) {
   return addr;
 }
 
-// Step 1: Deploy FlapVaultImpl
 const vaultImplAddr = await deploy('FlapVaultImpl', vaultImpl.abi, vaultImpl.bin);
-
-// Step 2: Deploy FlapPerpsImpl
 const perpsImplAddr = await deploy('FlapPerpsImpl', perpsImpl.abi, perpsImpl.bin);
 
-// Step 3: Deploy FlapFactory with impl addresses + config
 const factoryArgs = [
-  vaultImplAddr,
-  perpsImplAddr,
-  '0xd8AE9A69FD6Fe0e1B3D40F32D6E2E4A10894e118', // botOperator
-  '0xFcB317630C77bB730C52A81e6ACbD6456DB69930', // platform
-  '0xbcE2B70e158F3F4c0f7368909FA7aD7dBfeF7941', // platformFeeWallet
-  '0x55d398326f99059fF775485246999027B3197955', // USDT BSC
-  '0x04e6D0C5c6b4BB583345c2980b8122f36BdA8144', // oracle
-  '0x8eaeafdad4710585d5ad2446de3d4106023f19cf', // funding
+  vaultImplAddr, perpsImplAddr,
+  BOT_OPERATOR, PLATFORM_ADDRESS, PLATFORM_FEE_WALLET,
+  USDT_ADDRESS, ORACLE_ADDRESS, FUNDING_ADDRESS,
 ];
 const factoryAddr = await deploy('FlapFactory', factory.abi, factory.bin, factoryArgs);
 
@@ -89,3 +93,5 @@ console.log('FlapPerpsImpl:', perpsImplAddr);
 console.log('FlapFactory:  ', factoryAddr);
 console.log('BNB spent:', ethers.formatEther(bal - finalBal));
 console.log('===========================================');
+console.log('\nAdd these to your .env:');
+console.log(`FFX_FACTORY=${factoryAddr}`);
