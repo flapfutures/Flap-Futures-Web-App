@@ -9,6 +9,12 @@ import DashboardShell from "@/pages/dashboard-shell";
 import Dev88 from "@/pages/dev88";
 import Whitepaper from "@/pages/whitepaper";
 import NotFound from "@/pages/not-found";
+import { useAnalytics } from "@/hooks/useAnalytics";
+
+function Tracker() {
+  useAnalytics();
+  return null;
+}
 
 function Router() {
   return (
@@ -37,6 +43,7 @@ function App() {
       <WalletProvider>
         <TooltipProvider>
           <Toaster />
+          <Tracker />
           <Router />
         </TooltipProvider>
       </WalletProvider>
