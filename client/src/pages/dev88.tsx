@@ -54,6 +54,9 @@ interface Market {
   refreshInterval: number | null;
   gasBnbRequired: number | null;
   gasBnbPaid: boolean | null;
+  marketBotWallet: string | null;
+  contractVault: string | null;
+  contractPerps: string | null;
 }
 
 interface PlatformFees {
@@ -286,19 +289,33 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [linkingPlatform, setLinkingPlatform] = useState(false);
   const [linkMsg, setLinkMsg]             = useState<string | null>(null);
+  const [botPaused, setBotPaused]         = useState(false);
+  const [botToggling, setBotToggling]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [mRes, fRes] = await Promise.all([
+      const [mRes, fRes, bRes] = await Promise.all([
         fetch("/api/admin/markets"),
         fetch("/api/admin/platform-fees"),
+        fetch("/api/admin/bot/status"),
       ]);
       if (mRes.ok) setMarkets(await mRes.json());
       if (fRes.ok) setFees(await fRes.json());
+      if (bRes.ok) { const b = await bRes.json(); setBotPaused(b.paused); }
     } catch {}
     setLoading(false);
   }, []);
+
+  const toggleBot = async () => {
+    setBotToggling(true);
+    try {
+      const endpoint = botPaused ? "/api/admin/bot/start" : "/api/admin/bot/stop";
+      const r = await fetch(endpoint, { method: "POST" });
+      if (r.ok) { const j = await r.json(); setBotPaused(j.paused); }
+    } catch {}
+    setBotToggling(false);
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -369,6 +386,21 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
             </Badge>
           </div>
           <div className="flex items-center gap-2">
+            {/* Bot price-refresh toggle */}
+            <Button
+              variant="ghost" size="sm"
+              onClick={toggleBot}
+              disabled={botToggling}
+              className={`text-xs ${botPaused ? "text-red-400/80 hover:text-red-300" : "text-green-400/80 hover:text-green-300"}`}
+              title={botPaused ? "Oracle bot PAUSED — click to resume price refresh" : "Oracle bot RUNNING — click to pause price refresh"}
+            >
+              {botToggling
+                ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                : botPaused
+                  ? <><span className="w-2 h-2 rounded-full bg-red-400 mr-1.5 animate-pulse inline-block" />Bot Paused</>
+                  : <><span className="w-2 h-2 rounded-full bg-green-400 mr-1.5 animate-pulse inline-block" />Bot Running</>
+              }
+            </Button>
             <Button
               variant="ghost" size="sm"
               onClick={setupLinks}
@@ -443,10 +475,10 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
                   <tr className="text-[10px] text-white/30 uppercase tracking-wide border-b border-white/10">
                     <th className="text-left px-5 py-3 font-medium">Token</th>
                     <th className="text-left px-3 py-3 font-medium">Owner</th>
-                    <th className="text-right px-3 py-3 font-medium">Mcap</th>
-                    <th className="text-right px-3 py-3 font-medium">Vault</th>
-                    <th className="text-right px-3 py-3 font-medium">Platform Fees</th>
-                    <th className="text-center px-3 py-3 font-medium">Gas BNB</th>
+                    <th className="text-left px-3 py-3 font-medium">Market Bot</th>
+                    <th className="text-left px-3 py-3 font-medium">Contracts</th>
+                    <th className="text-right px-3 py-3 font-medium">Vault $</th>
+                    <th className="text-right px-3 py-3 font-medium">Fees</th>
                     <th className="text-center px-3 py-3 font-medium">Status</th>
                     <th className="text-right px-5 py-3 font-medium">Actions</th>
                   </tr>
@@ -471,6 +503,7 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
                             </div>
                           </div>
                         </td>
+                        {/* Owner wallet */}
                         <td className="px-3 py-3">
                           <a
                             href={`https://bscscan.com/address/${m.ownerWallet}`}
@@ -481,18 +514,59 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         </td>
-                        <td className="px-3 py-3 text-right font-mono text-xs text-white/70">{fmt(m.mcap || 0)}</td>
-                        <td className="px-3 py-3 text-right font-mono text-xs text-white/70">{fmt(m.vaultBalance || 0)}</td>
-                        <td className="px-3 py-3 text-right font-mono text-xs text-[#d5f704]">{fmt(m.platformFees || 0)}</td>
-                        <td className="px-3 py-3 text-center">
-                          {m.gasBnbRequired && m.gasBnbRequired > 0 ? (
-                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${m.gasBnbPaid ? "text-green-400 border-green-500/30 bg-green-500/10" : "text-amber-400 border-amber-500/30 bg-amber-500/10"}`}>
-                              {m.gasBnbRequired} BNB {m.gasBnbPaid ? "✓" : "pending"}
-                            </span>
+
+                        {/* Per-market bot wallet */}
+                        <td className="px-3 py-3">
+                          {m.marketBotWallet ? (
+                            <a
+                              href={`https://bscscan.com/address/${m.marketBotWallet}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-1 font-mono text-[11px] text-blue-400/80 hover:text-blue-300 transition-colors"
+                              title={`Market bot: ${m.marketBotWallet}`}
+                            >
+                              <Bot className="w-3 h-3 flex-shrink-0" />
+                              {m.marketBotWallet.slice(0, 6)}…{m.marketBotWallet.slice(-4)}
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
                           ) : (
-                            <span className="text-white/20 text-[10px]">—</span>
+                            <span className="text-[10px] text-white/20 font-mono">no bot</span>
                           )}
                         </td>
+
+                        {/* Contract addresses (vault + perps) */}
+                        <td className="px-3 py-3">
+                          <div className="space-y-0.5">
+                            {m.contractVault ? (
+                              <a
+                                href={`https://bscscan.com/address/${m.contractVault}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 font-mono text-[10px] text-[#7a33fa]/70 hover:text-[#7a33fa] transition-colors"
+                                title={`Vault: ${m.contractVault}`}
+                              >
+                                <span className="text-white/30">V:</span>{m.contractVault.slice(0, 6)}…{m.contractVault.slice(-4)}
+                                <ExternalLink className="w-2 h-2" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-white/15 font-mono">no vault</span>
+                            )}
+                            {m.contractPerps ? (
+                              <a
+                                href={`https://bscscan.com/address/${m.contractPerps}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-1 font-mono text-[10px] text-[#d5f704]/60 hover:text-[#d5f704] transition-colors"
+                                title={`Perps: ${m.contractPerps}`}
+                              >
+                                <span className="text-white/30">P:</span>{m.contractPerps.slice(0, 6)}…{m.contractPerps.slice(-4)}
+                                <ExternalLink className="w-2 h-2" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-white/15 font-mono">no perps</span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-3 text-right font-mono text-xs text-white/70">{fmt(m.vaultBalance || 0)}</td>
+                        <td className="px-3 py-3 text-right font-mono text-xs text-[#d5f704]">{fmt(m.platformFees || 0)}</td>
                         <td className="px-3 py-3 text-center"><StatusBadge status={m.status} /></td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
