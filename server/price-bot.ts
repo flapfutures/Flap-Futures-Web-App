@@ -3,12 +3,23 @@
  * Runs every 5 minutes, fetches fresh DexScreener data for every live market,
  * recalculates flex params, and (when contracts are deployed) pushes oracle
  * prices on-chain, settles funding, and scans for liquidatable positions.
+ *
+ * Safety rules (enforced here + in storage.getAllActiveMarkets):
+ *   - Only markets with status=LIVE AND deployed FFX contracts receive on-chain calls.
+ *   - PAUSED / PENDING / FROZEN / DELETED markets are never pushed to the oracle.
+ *   - Global pause (setBotPaused) halts ALL ticks without killing the process.
  */
 
 import { storage } from "./storage";
 import { log } from "./index";
-import { pushOraclePrice, settleFunding, scanAndLiquidate, initBotWallet } from "./bot-onchain";
-import { ethers } from "ethers";
+
+// ── Global bot pause state ─────────────────────────────────────────────────────
+let _botPaused = false;
+export function setBotPaused(paused: boolean) {
+  _botPaused = paused;
+  log(`[price-bot] ${paused ? "⏸  PAUSED — no oracle pushes until resumed" : "▶️  RESUMED — price refresh active"}`, "bot");
+}
+export function isBotPaused(): boolean { return _botPaused; }
 
 // ── On-chain market cap: price × totalSupply() (burn-adjusted) ────────────────
 const BSC_RPC = "https://bsc-dataseed.binance.org";
@@ -92,8 +103,16 @@ function sleep(ms: number) {
 }
 
 async function refreshAllLiveMarkets() {
+  // ── Global pause guard ──────────────────────────────────────────────────────
+  if (_botPaused) {
+    log("[price-bot] ⏸  bot paused — skipping tick", "bot");
+    return;
+  }
+
   let liveMarkets: Awaited<ReturnType<typeof storage.getAllActiveMarkets>>;
   try {
+    // getAllActiveMarkets() only returns LIVE markets with contractVault set.
+    // PAUSED, PENDING, FROZEN and markets without FFX contracts are excluded.
     liveMarkets = await storage.getAllActiveMarkets();
   } catch (err) {
     log(`[price-bot] DB error fetching live markets: ${err}`, "bot");
@@ -146,14 +165,20 @@ async function refreshAllLiveMarkets() {
         lastRefreshed: new Date(),
       });
 
-      // ── On-chain: push fresh price to oracle (no-op if not deployed) ──────
-      await pushOraclePrice(market.tokenAddress, priceUsd, mcap, liquidity);
+      // ── On-chain ops: ONLY for LIVE markets with deployed FFX contracts ──────
+      // (getAllActiveMarkets already enforces this, but double-check here)
+      const vaultAddr = (market as any).contractVault  || "";
+      const perpsAddr = (market as any).contractPerps  || "";
+      const botKey    = (market as any).marketBotPrivkey || undefined;
 
-      // ── On-chain: settle funding + scan liquidations per market ───────────
-      const perpsAddr = market.contractPerps || "";
-      if (perpsAddr) {
+      if (market.status === "LIVE" && vaultAddr && perpsAddr) {
+        await pushOraclePrice(market.tokenAddress, priceUsd, mcap, liquidity, botKey);
         await settleFunding(perpsAddr);
         await scanAndLiquidate(perpsAddr);
+        await executeTpSlPositions(perpsAddr, priceUsd);
+        await executeLimitOrders(perpsAddr, priceUsd);
+      } else {
+        log(`[price-bot] skipping on-chain ops for ${market.tokenSymbol} — status=${market.status}, vault=${vaultAddr ? "ok" : "missing"}, perps=${perpsAddr ? "ok" : "missing"}`, "bot");
       }
 
       ok++;
@@ -170,7 +195,6 @@ async function refreshAllLiveMarkets() {
 }
 
 export function startPriceBot() {
-  initBotWallet(); // verify private key + log wallet address on startup
   refreshAllLiveMarkets();
   setInterval(refreshAllLiveMarkets, BOT_TICK_MS);
   log(`[price-bot] started — ticking every 1 min, respecting per-market refresh intervals`, "bot");
