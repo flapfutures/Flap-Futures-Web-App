@@ -126,10 +126,11 @@ function lockDaysToSeconds(days: number): number {
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
-  // ── Security: strip marketBotPrivkey from every JSON response ─────────────
-  // The private key is stored in DB for the price-bot only — it must never
-  // reach any client (browser, curl, etc.)
-  app.use((_req, res, next) => {
+  // ── Security: strip marketBotPrivkey from non-admin JSON responses ──────────
+  // Admin routes (/api/admin/*) pass the key through so dev88 can display it.
+  // Every other route (public, creator-facing) has it removed automatically.
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/admin/")) { next(); return; }
     const origJson = res.json.bind(res);
     res.json = function (data: unknown) {
       const scrub = (obj: unknown): unknown => {
