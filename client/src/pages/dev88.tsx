@@ -283,6 +283,218 @@ function ContractArchitecture() {
   );
 }
 
+// ── Traffic Analytics Panel ───────────────────────────────────────────────────
+
+interface AnalyticsData {
+  onlineNow: { fingerprint: string; countryCode: string | null; countryName: string | null; page: string | null; idle: string; status: string }[];
+  todayCount: number;
+  weekCount:  number;
+  totalCount: number;
+  dailyTraffic: { date: string; views: number; visitors: number }[];
+  topPages: { page: string | null; views: number; visitors: number }[];
+  recent: { fingerprint: string; countryCode: string | null; countryName: string | null; page: string | null; time: string }[];
+}
+
+function countryFlag(code: string | null) {
+  if (!code || code === "??" || code === "LC") return "🌐";
+  return code.toUpperCase().replace(/./g, c => String.fromCodePoint(c.charCodeAt(0) + 127397));
+}
+
+function StatusDot({ status }: { status: string }) {
+  const color = status === "Active" ? "bg-green-400" : status === "Idle" ? "bg-yellow-400" : "bg-red-400";
+  return <span className={`inline-block w-2 h-2 rounded-full ${color} mr-1.5`} />;
+}
+
+function TrafficPanel() {
+  const [data, setData]       = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr]         = useState("");
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/analytics");
+      if (!r.ok) { setErr("Failed to load analytics"); return; }
+      setData(await r.json());
+      setErr("");
+    } catch { setErr("Network error"); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(); const t = setInterval(fetchData, 30_000); return () => clearInterval(t); }, [fetchData]);
+
+  if (loading && !data) return (
+    <div className="flex items-center justify-center py-24">
+      <Loader2 className="w-5 h-5 animate-spin text-white/30" />
+    </div>
+  );
+  if (err) return <div className="text-center py-12 text-red-400 text-sm">{err}</div>;
+  if (!data) return null;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Online Now", value: data.onlineNow.length, color: "text-green-400" },
+          { label: "Today",      value: data.todayCount,       color: "text-[#d5f704]" },
+          { label: "7 Days",     value: data.weekCount,        color: "text-blue-400" },
+          { label: "Total",      value: data.totalCount,       color: "text-[#7a33fa]" },
+        ].map(s => (
+          <Card key={s.label} className="bg-white/5 border-white/10 p-4">
+            <p className="text-[10px] text-white/40 uppercase tracking-wide mb-1">{s.label}</p>
+            <p className={`font-mono text-2xl font-bold ${s.color}`}>{s.value.toLocaleString()}</p>
+          </Card>
+        ))}
+      </div>
+
+      {/* Online Now */}
+      <Card className="bg-white/5 border-white/10">
+        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+          <h3 className="font-semibold text-white text-sm flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
+            Online Now ({data.onlineNow.length})
+          </h3>
+          <button onClick={fetchData} className="text-white/30 hover:text-white transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        {data.onlineNow.length === 0 ? (
+          <p className="text-center text-white/30 text-sm py-6">No active visitors right now</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px]">
+              <thead>
+                <tr className="text-[10px] text-white/30 uppercase tracking-wide border-b border-white/10">
+                  <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Location</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Page</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Idle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.onlineNow.map((v, i) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                    <td className="px-4 py-2.5 text-xs">
+                      <StatusDot status={v.status} />{v.status}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-white/60">
+                      <span className="mr-1">{countryFlag(v.countryCode)}</span>
+                      <span className="text-white/30 text-[10px] uppercase mr-1">{v.countryCode}</span>
+                      {v.countryName || "Unknown"}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs" style={{ color: "#7a33fa" }}>{v.page || "/"}</td>
+                    <td className="px-4 py-2.5 text-xs text-white/40 text-right">{v.idle}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Site Traffic — last 30 days */}
+      <Card className="bg-white/5 border-white/10">
+        <div className="p-4 border-b border-white/10">
+          <h3 className="font-semibold text-white text-sm">Site Traffic (Last 30 Days)</h3>
+        </div>
+        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+          <table className="w-full min-w-[420px]">
+            <thead className="sticky top-0 bg-[#0a0614]">
+              <tr className="text-[10px] text-white/30 uppercase tracking-wide border-b border-white/10">
+                <th className="text-left px-4 py-2.5 font-medium">Date</th>
+                <th className="text-right px-4 py-2.5 font-medium">Unique Visitors</th>
+                <th className="text-right px-4 py-2.5 font-medium">Page Views</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.dailyTraffic.length === 0 ? (
+                <tr><td colSpan={3} className="text-center text-white/30 text-sm py-6">No data yet</td></tr>
+              ) : data.dailyTraffic.map((d, i) => (
+                <tr key={i} className="border-b border-white/5 hover:bg-white/3">
+                  <td className="px-4 py-2.5 text-xs text-white/70">
+                    {new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-xs text-[#d5f704]">{d.visitors.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-xs text-white/60">{d.views.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Pages */}
+        <Card className="bg-white/5 border-white/10">
+          <div className="p-4 border-b border-white/10">
+            <h3 className="font-semibold text-white text-sm">Top Pages</h3>
+          </div>
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-[#0a0614]">
+                <tr className="text-[10px] text-white/30 uppercase tracking-wide border-b border-white/10">
+                  <th className="text-left px-4 py-2.5 font-medium">Page</th>
+                  <th className="text-right px-3 py-2.5 font-medium">Views</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Visitors</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.topPages.length === 0 ? (
+                  <tr><td colSpan={3} className="text-center text-white/30 text-sm py-6">No data yet</td></tr>
+                ) : data.topPages.map((p, i) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/3">
+                    <td className="px-4 py-2 font-mono text-xs" style={{ color: "#7a33fa" }}>{p.page || "/"}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-white/70">{p.views.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right font-mono text-xs text-[#d5f704]">{p.visitors.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* Recent Visitors */}
+        <Card className="bg-white/5 border-white/10">
+          <div className="p-4 border-b border-white/10">
+            <h3 className="font-semibold text-white text-sm" style={{ color: "#d5f704" }}>Recent Visitors</h3>
+          </div>
+          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-[#0a0614]">
+                <tr className="text-[10px] text-white/30 uppercase tracking-wide border-b border-white/10">
+                  <th className="text-left px-4 py-2.5 font-medium">Visitor</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Country</th>
+                  <th className="text-left px-3 py-2.5 font-medium">Page</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent.length === 0 ? (
+                  <tr><td colSpan={4} className="text-center text-white/30 text-sm py-6">No visits yet</td></tr>
+                ) : data.recent.map((r, i) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/3">
+                    <td className="px-4 py-2 font-mono text-[11px] text-white/50">{r.fingerprint}</td>
+                    <td className="px-3 py-2 text-xs text-white/60">
+                      <span className="mr-1">{countryFlag(r.countryCode)}</span>
+                      <span className="text-[10px] text-white/30 uppercase">{r.countryCode}</span>
+                      <span className="ml-1">{r.countryName}</span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs" style={{ color: "#7a33fa" }}>{r.page || "/"}</td>
+                    <td className="px-4 py-2 text-right text-[10px] text-white/35">{r.time}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Markets Admin Panel ───────────────────────────────────────────────────────
+
 function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
   const [markets, setMarkets]             = useState<Market[]>([]);
   const [fees, setFees]                   = useState<PlatformFees | null>(null);
@@ -294,6 +506,7 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
   const [botPaused, setBotPaused]         = useState(false);
   const [botToggling, setBotToggling]     = useState(false);
   const [revealedPrivkeys, setRevealedPrivkeys] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab]         = useState<"markets" | "traffic">("markets");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -446,8 +659,30 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
 
+        {/* Tab navigation */}
+        <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/10 w-fit">
+          {(["markets", "traffic"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+                activeTab === tab
+                  ? "bg-[#7a33fa] text-white shadow"
+                  : "text-white/40 hover:text-white/70"
+              }`}
+            >
+              {tab === "traffic" ? "Traffic" : "Markets"}
+            </button>
+          ))}
+        </div>
+
+        {/* Traffic panel */}
+        {activeTab === "traffic" && <TrafficPanel />}
+
+        {/* Markets content */}
+        {activeTab === "markets" && <>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Live Markets",  value: live,                              icon: CheckCircle, color: "text-green-400" },
@@ -705,6 +940,7 @@ function Dev88Panel({ onLockOut }: { onLockOut: () => void }) {
             </div>
           )}
         </Card>
+        </>}
 
       </div>
     </div>
