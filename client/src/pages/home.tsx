@@ -2302,10 +2302,10 @@ const FOOTER_RESOURCES = [
 ];
 
 const FOOTER_LEGAL = [
-  { label: "Terms of Service", href: "#" },
-  { label: "Privacy Policy",   href: "#" },
-  { label: "Risk Disclosure",  href: "#" },
-  { label: "Cookie Policy",    href: "#" },
+  { label: "Terms of Service", href: "/terms" },
+  { label: "Privacy Policy",   href: "/privacy" },
+  { label: "Risk Disclosure",  href: "/risk" },
+  { label: "Cookie Policy",    href: "/cookies" },
 ];
 
 function Footer() {
