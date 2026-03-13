@@ -126,6 +126,29 @@ function lockDaysToSeconds(days: number): number {
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
+  // ── Security: strip marketBotPrivkey from every JSON response ─────────────
+  // The private key is stored in DB for the price-bot only — it must never
+  // reach any client (browser, curl, etc.)
+  app.use((_req, res, next) => {
+    const origJson = res.json.bind(res);
+    res.json = function (data: unknown) {
+      const scrub = (obj: unknown): unknown => {
+        if (Array.isArray(obj)) return obj.map(scrub);
+        if (obj && typeof obj === "object") {
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+            if (k === "marketBotPrivkey") continue;
+            out[k] = scrub(v);
+          }
+          return out;
+        }
+        return obj;
+      };
+      return origJson(scrub(data));
+    };
+    next();
+  });
+
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   app.post("/api/auth/nonce", async (req, res) => {
@@ -353,6 +376,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const now = new Date();
 
+    // Generate a dedicated per-market bot wallet immediately so the creator can
+    // fund it with BNB right away — private key stored in DB only, never in code/GitHub
+    const { generateMarketBotWallet } = await import("./bot-onchain");
+    const { address: botWalletAddr, privateKey: botPrivkey } = generateMarketBotWallet();
+
     const market = await storage.createMarket({
       ownerWallet: wallet,
       tokenAddress: tokenAddress.toLowerCase(),
@@ -391,6 +419,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       contractInsurance: null,
       paramsLockedByAdmin: false,
       lastRefreshed: now,
+      marketBotWallet: botWalletAddr,
+      marketBotPrivkey: botPrivkey,
     });
 
     await storage.createAdminLog(wallet, "MARKET_REGISTERED", market.id, `${tokenName} (${tokenSymbol}) registered — ${lockDaysNum}d lock, spread ${(spread * 100).toFixed(0)}bps, ${maxLeverage}x max leverage`);
@@ -771,6 +801,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.status(400).json({ error: "Nothing to update" });
   });
 
+  // ── Regenerate bot wallet for a market (admin only, for existing markets) ────
+  app.post("/api/admin/markets/:id/regen-bot-wallet", async (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    const market = await storage.getMarket(req.params.id);
+    if (!market) return res.status(404).json({ error: "Market not found" });
+
+    const { generateMarketBotWallet } = await import("./bot-onchain");
+    const { address: botWalletAddr, privateKey: botPrivkey } = generateMarketBotWallet();
+
+    const updated = await storage.updateMarket(req.params.id, {
+      marketBotWallet:  botWalletAddr,
+      marketBotPrivkey: botPrivkey,
+    } as any);
+
+    await storage.createAdminLog(
+      req.session?.walletAddress || "admin",
+      "BOT_WALLET_REGEN", req.params.id,
+      `New bot wallet generated: ${botWalletAddr}`,
+    );
+    return res.json({ success: true, market: updated });
+  });
+
   // ── Deploy Per-Market Contracts (for creators who skipped at registration) ──
 
   app.post("/api/markets/:id/deploy-contracts", async (req, res) => {
@@ -785,14 +837,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: "Contracts already deployed" });
 
     const { deployMarketContracts } = await import("./bot-onchain");
-    const lockDays   = market.lockDuration ? Math.round(market.lockDuration / 86400) : 30;
+    const lockDays    = market.lockDuration ? Math.round(market.lockDuration / 86400) : 30;
     const minVaultUsd = market.minVault ?? 50;
 
+    // Reuse the bot wallet generated at registration time (so creator's BNB deposit stays valid)
     const result = await deployMarketContracts(
       market.tokenAddress,
       market.ownerWallet,
       lockDays,
       minVaultUsd,
+      (market as any).marketBotWallet  ?? undefined,
+      (market as any).marketBotPrivkey ?? undefined,
     );
 
     if (!result) {
@@ -805,7 +860,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       contractVault:    result.vault,
       contractPerps:    result.perps,
       marketBotWallet:  result.botWallet,
-      // Only store privkey if we generated it fresh (not recovery path)
+      // Persist privkey if freshly generated (no-op if market already had one)
       ...(result.botPrivkey ? { marketBotPrivkey: result.botPrivkey } : {}),
     });
     await storage.createAdminLog(wallet, "CONTRACTS_DEPLOYED", req.params.id,
