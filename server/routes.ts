@@ -102,6 +102,7 @@ function recomputeFlexParams(mcap: number, vaultBalance: number) {
 declare module "express-session" {
   interface SessionData {
     walletAddress?: string;
+    dev88Authed?: boolean;
   }
 }
 
@@ -699,7 +700,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Refresh Params ─────────────────────────────────────────────────────────
 
-  async function refreshMarketParams(req: Request, res: Response) {
+  async function refreshMarketParams(req: Request<{ id: string }>, res: Response) {
     const wallet = req.session?.walletAddress;
     if (!wallet) return res.status(401).json({ error: "Not authenticated" });
 
@@ -718,7 +719,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const priceUsd  = parseFloat(bestPair.priceUsd || "0");
       const dexMcap   = bestPair.marketCap || bestPair.fdv || 0;
-      const chainMcap = await onChainMcap(market.contractAddress, priceUsd);
+      const chainMcap = await onChainMcap(market.tokenAddress || "", priceUsd);
       const mcap      = chainMcap ?? dexMcap;
       const liquidity = bestPair.liquidity?.usd || 0;
       const volume24h = bestPair.volume?.h24 || 0;
@@ -784,12 +785,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(400).json({ error: "Contracts already deployed" });
 
     const { deployMarketContracts } = await import("./bot-onchain");
-    const lockDays = market.lockDuration ? Math.round(market.lockDuration / 86400) : 30;
+    const lockDays   = market.lockDuration ? Math.round(market.lockDuration / 86400) : 30;
+    const minVaultUsd = market.minVault ?? 50;
 
     const result = await deployMarketContracts(
       market.tokenAddress,
       market.ownerWallet,
       lockDays,
+      minVaultUsd,
     );
 
     if (!result) {
@@ -799,11 +802,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
 
     const updated = await storage.updateMarket(req.params.id, {
-      contractVault: result.vault,
-      contractPerps: result.perps,
+      contractVault:    result.vault,
+      contractPerps:    result.perps,
+      marketBotWallet:  result.botWallet,
+      // Only store privkey if we generated it fresh (not recovery path)
+      ...(result.botPrivkey ? { marketBotPrivkey: result.botPrivkey } : {}),
     });
     await storage.createAdminLog(wallet, "CONTRACTS_DEPLOYED", req.params.id,
-      `Vault=${result.vault} Perps=${result.perps}`);
+      `Vault=${result.vault} Perps=${result.perps} BotWallet=${result.botWallet}`);
     return res.json({ success: true, market: updated });
   });
 
@@ -1071,6 +1077,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(logs);
   });
 
+  // ── Post-deploy: wire Oracle + Funding factory pointers ──────────────────────
+  // Call once after all FFX platform contracts are deployed on BSC mainnet.
+  app.post("/api/admin/setup-platform-links", async (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    const missing = ["FFX_ORACLE", "FFX_FUNDING", "FFX_FACTORY"].filter(k => !process.env[k]);
+    if (missing.length) {
+      return res.status(503).json({ error: `Missing env vars: ${missing.join(", ")} — set them in .env and restart` });
+    }
+    try {
+      const { setupPlatformLinks } = await import("./bot-onchain");
+      await setupPlatformLinks();
+      await storage.createAdminLog(
+        req.session?.walletAddress || "admin",
+        "SETUP_PLATFORM_LINKS", undefined,
+        "oracle.setFactory + funding.setFactory + factory.setPlatformContract"
+      );
+      return res.json({ success: true, message: "Platform links wired — check bot logs." });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || "Failed" });
+    }
+  });
+
+  // ── Bot price-refresh start / stop / status ──────────────────────────────────
+  app.get("/api/admin/bot/status", (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    const { isBotPaused } = require("./price-bot");
+    return res.json({ paused: isBotPaused() });
+  });
+
+  app.post("/api/admin/bot/stop", async (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    const { setBotPaused } = await import("./price-bot");
+    setBotPaused(true);
+    await storage.createAdminLog(
+      req.session?.walletAddress || "admin",
+      "BOT_STOPPED", undefined, "Oracle price-refresh bot paused by admin"
+    );
+    return res.json({ success: true, paused: true });
+  });
+
+  app.post("/api/admin/bot/start", async (req, res) => {
+    if (!req.session?.dev88Authed) return res.status(403).json({ error: "Forbidden" });
+    const { setBotPaused } = await import("./price-bot");
+    setBotPaused(false);
+    await storage.createAdminLog(
+      req.session?.walletAddress || "admin",
+      "BOT_STARTED", undefined, "Oracle price-refresh bot resumed by admin"
+    );
+    return res.json({ success: true, paused: false });
+  });
+
   // Platform-wide fee summary for admin dashboard
   app.get("/api/admin/platform-fees", async (req, res) => {
     const wallet = req.session?.walletAddress;
@@ -1089,6 +1146,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }));
 
     return res.json({ totalPlatformFees, totalOpenerFeesPaid, breakdown });
+  });
+
+  // ── Dev88 Password Gate ────────────────────────────────────────────────────
+
+  app.get("/api/dev88/check", (req, res) => {
+    return res.json({ authed: req.session?.dev88Authed === true });
+  });
+
+  app.post("/api/dev88/auth", (req, res) => {
+    const { password } = req.body as { password?: string };
+    const correct = process.env.DEV88_PASSWORD || "";
+    if (!correct) return res.status(500).json({ error: "DEV88_PASSWORD not configured" });
+    if (password !== correct) return res.status(401).json({ error: "Wrong password" });
+    req.session.dev88Authed = true;
+    return res.json({ authed: true });
+  });
+
+  app.post("/api/dev88/logout", (req, res) => {
+    req.session.dev88Authed = false;
+    return res.json({ ok: true });
   });
 
   return httpServer;
